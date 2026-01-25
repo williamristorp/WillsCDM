@@ -4,5 +4,6 @@
 ## Version: 1.0.1
 ## LoadOnDemand: 0
 ## Category: User Interface
+## SavedVariables: WillsDB
 
 WillsCDM.lua
