@@ -124,7 +124,10 @@ local function HookCooldowns()
                     return
                 end
 
-                self:SetDesaturation(desaturation)
+                if cdmFrame.wasSetFromAura then
+                    self:SetDesaturation(desaturation)
+                end
+
                 do
                     return
                 end
