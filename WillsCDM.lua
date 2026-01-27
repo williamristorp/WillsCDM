@@ -63,7 +63,7 @@ local function showAurasForSpellID(spellID)
     end
 end
 
-local function ForceIgnoreSpellAuras()
+local function HookCooldowns()
     local desaturationCurve = C_CurveUtil.CreateCurve()
     desaturationCurve:AddPoint(0, 0)
     desaturationCurve:AddPoint(0.001, 1)
@@ -156,7 +156,7 @@ local function ForceIgnoreSpellAuras()
 end
 
 local function Run()
-    ForceIgnoreSpellAuras()
+    HookCooldowns()
 end
 
 local f = CreateFrame("Frame")
