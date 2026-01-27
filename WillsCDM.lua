@@ -220,7 +220,7 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             print("Cleared all spellID overrides. Reverting to default behavior.")
             Run()
         else
-            print("Usage: /wcdm clear {<spellID>|all}")
+            print("Usage: /wcdm clear {<spellID>,all}")
         end
     elseif starts_with(msg, "default") then
         local bool = msg:match("default%s+(%S+)")
@@ -238,7 +238,7 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             local db = GetDB()
             local status = db.showAurasGlobal and "Shown" or "Hidden"
             print("Default (used for spells not specifically hidden or shown): " .. status .. ".")
-            print("Usage: /wcdm default {hide|show}")
+            print("Usage: /wcdm default {hide,show}")
         end
     elseif msg == "list" then
         local db = GetDB()
@@ -248,12 +248,11 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             print(spellID .. ": " .. (showing and "Shown" or "Hidden"))
         end
     else
-        print("Will's CDM commands:")
-        print("/wcdm settings - Open Cooldown Viewer Settings")
+        print("/cdm - Open Advanced Cooldown Settings panel")
         print("/wcdm hide <spellID> - Hide auras for <spellID>")
         print("/wcdm show <spellID> - Show auras for <spellID>")
-        print("/wcdm clear {<spellID>|all} - Clear override for <spellID> or all spell IDs")
-        print("/wcdm default {hide|show} - Set whether to hide auras for spells not specifically hidden or shown")
+        print("/wcdm clear {<spellID>,all} - Clear override for <spellID> or all spell IDs")
+        print("/wcdm default {hide,show} - Set whether to hide auras for spells not specifically hidden or shown")
         print("/wcdm list - List all spell IDs currently set to be hidden or shown")
     end
 end
