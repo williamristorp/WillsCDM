@@ -1,5 +1,7 @@
 local addonName, _ = ...
 
+local panelFrame
+
 local defaults = {
     showAurasGlobal = false,
     showAurasSpellIDs = {}
@@ -104,9 +106,8 @@ local function HookCooldowns()
                     desaturation = cooldownDuration:EvaluateRemainingPercent(desaturationCurve)
                 end
 
-                self:SetReverse(false)
                 self:SetDrawEdge(true)
-                self:SetDrawSwipe(true)
+                self:SetReverse(false)
                 self:SetSwipeColor(0, 0, 0, 0.7)
             end)
 
@@ -127,10 +128,6 @@ local function HookCooldowns()
 
                 if cdmFrame.wasSetFromAura then
                     self:SetDesaturation(desaturation)
-                end
-
-                do
-                    return
                 end
 
                 if cdmFrame.wasSetFromAura and cdmFrame:GetAuraDataUnit() ~= "target" then
@@ -159,6 +156,275 @@ local function HookCooldowns()
     end
 end
 
+local function SortedKeys(tbl)
+    local keys = {}
+    for k in pairs(tbl) do
+        table.insert(keys, k)
+    end
+    table.sort(keys)
+    return keys
+end
+
+local function RefreshPanel()
+    if not panelFrame or not panelFrame:IsShown() then
+        return
+    end
+
+    if not panelFrame.overrideScrollFrame or not panelFrame.overrideContent then
+        return
+    end
+
+    local db = GetDB()
+    local keys = SortedKeys(db.showAurasSpellIDs)
+
+    local rowSpacing = 40
+
+    for index, spellID in ipairs(keys) do
+        local row = panelFrame.overrideRows[index]
+
+        if not row then
+            row = CreateFrame("Frame", nil, panelFrame.overrideContent)
+            row:SetSize(220, 32)
+            row:SetPoint("TOPLEFT", panelFrame.overrideContent, "TOPLEFT", 0, -(index - 1) * rowSpacing)
+
+            row.icon = row:CreateTexture(nil, "ARTWORK")
+            row.icon:SetSize(32, 32)
+            row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+
+            row.dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
+            row.dropdown:SetSize(140, 24)
+            row.dropdown:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
+
+            row.clearButton = CreateFrame("Button", nil, row, "GameMenuButtonTemplate")
+            row.clearButton:SetSize(24, 24)
+            row.clearButton:SetPoint("LEFT", row.dropdown, "RIGHT", 3, 0)
+            row.clearButton:SetText("X")
+
+            row.icon:SetScript("OnEnter", function(self)
+                if not row.spellID then
+                    return
+                end
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetSpellByID(row.spellID)
+                GameTooltip:Show()
+            end)
+            row.icon:SetScript("OnLeave", function()
+                GameTooltip:Hide()
+            end)
+
+            row.dropdown:SetupMenu(function(owner, rootDescription)
+                rootDescription:CreateButton("Show Auras", function()
+                    if not row.spellID then
+                        return
+                    end
+                    db.showAurasSpellIDs[row.spellID] = true
+                    print("Set to show auras for spellID " .. row.spellID)
+                    RefreshPanel()
+                end)
+                rootDescription:CreateButton("Hide Auras", function()
+                    if not row.spellID then
+                        return
+                    end
+                    db.showAurasSpellIDs[row.spellID] = false
+                    print("Set to hide auras for spellID " .. row.spellID)
+                    RefreshPanel()
+                end)
+            end)
+
+            row.clearButton:SetScript("OnClick", function()
+                if not row.spellID then
+                    return
+                end
+                db.showAurasSpellIDs[row.spellID] = nil
+                print("Cleared spellID override for " .. row.spellID .. ". Reverting to default behavior.")
+                RefreshPanel()
+            end)
+
+            panelFrame.overrideRows[index] = row
+        else
+            row:SetParent(panelFrame.overrideContent)
+            row:SetPoint("TOPLEFT", panelFrame.overrideContent, "TOPLEFT", 0, -(index - 1) * rowSpacing)
+        end
+
+        row.spellID = spellID
+        row.icon:SetTexture(C_Spell.GetSpellTexture(spellID))
+        if showAurasForSpellID(spellID) then
+            row.dropdown:SetDefaultText("Show Auras")
+        else
+            row.dropdown:SetDefaultText("Hide Auras")
+        end
+        row:Show()
+    end
+
+    local scrollFrame = panelFrame.overrideScrollFrame
+    local content = panelFrame.overrideContent
+    local contentHeight = math.max(#keys * rowSpacing, scrollFrame:GetHeight())
+    content:SetHeight(contentHeight)
+
+    local maxScroll = math.max(0, content:GetHeight() - scrollFrame:GetHeight())
+    if scrollFrame:GetVerticalScroll() > maxScroll then
+        scrollFrame:SetVerticalScroll(maxScroll)
+    end
+
+    for index = #keys + 1, #panelFrame.overrideRows do
+        panelFrame.overrideRows[index]:Hide()
+        panelFrame.overrideRows[index].spellID = nil
+    end
+end
+
+local function AttachPanelToCooldownViewerSettings()
+    if not panelFrame then
+        return
+    end
+
+    if panelFrame.WillsCDM_AttachedToCooldownViewerSettings then
+        return
+    end
+
+    local cooldownViewerSettings = _G["CooldownViewerSettings"]
+    if not cooldownViewerSettings then
+        C_Timer.After(1, AttachPanelToCooldownViewerSettings)
+        return
+    end
+
+    local xOffset = 55
+
+    panelFrame:ClearAllPoints()
+    panelFrame:SetPoint("TOPLEFT", cooldownViewerSettings, "TOPRIGHT", xOffset, 0)
+    panelFrame:SetPoint("BOTTOMLEFT", cooldownViewerSettings, "BOTTOMRIGHT", xOffset, 3)
+    panelFrame:SetWidth(256)
+
+    cooldownViewerSettings:HookScript("OnShow", function()
+        if panelFrame then
+            panelFrame:Show()
+            RefreshPanel()
+        end
+    end)
+
+    cooldownViewerSettings:HookScript("OnHide", function()
+        if panelFrame then
+            panelFrame:Hide()
+        end
+    end)
+
+    if cooldownViewerSettings:IsShown() then
+        panelFrame:Show()
+    else
+        panelFrame:Hide()
+    end
+
+    panelFrame.WillsCDM_AttachedToCooldownViewerSettings = true
+end
+
+local function CreateWillsCDMSettingsFrame()
+    local frame = CreateFrame("Frame", "WillsCDMSettings", UIParent, "BasicFrameTemplateWithInset")
+    frame:SetSize(256, 512)
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, -2)
+    frame.title:SetText("Will's CDM Aura Settings")
+
+    frame.overrideRows = {}
+    panelFrame = frame
+
+    frame:Hide()
+
+    local cooldownFrames = GetCooldownFrames()
+    local db = GetDB()
+
+    local globalLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    globalLabel:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -40)
+    globalLabel:SetText("Global")
+
+    local globalDropdown = CreateFrame("DropdownButton", nil, frame, "WowStyle1DropdownTemplate")
+    globalDropdown:SetSize(216, 24)
+    globalDropdown:SetPoint("TOPLEFT", globalLabel, "TOPLEFT", 0, -15)
+    globalDropdown:SetupMenu(function(owner, rootDescription)
+        rootDescription:CreateTitle("Default Aura Display");
+        rootDescription:CreateButton("Show All Auras", function(data)
+            db.showAurasGlobal = true
+            print("Set default to show all auras.")
+            owner:SetDefaultText("Show All Auras")
+        end);
+        rootDescription:CreateButton("Hide All Auras", function(data)
+            db.showAurasGlobal = false
+            print("Set default to hide all auras.")
+            owner:SetDefaultText("Hide All Auras")
+        end);
+    end)
+    if db.showAurasGlobal then
+        globalDropdown:SetDefaultText("Show All Auras")
+    else
+        globalDropdown:SetDefaultText("Hide All Auras")
+    end
+
+    local overrideLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    overrideLabel:SetPoint("TOPLEFT", globalDropdown, "BOTTOMLEFT", 0, -20)
+    overrideLabel:SetText("Overrides")
+
+    local overrideAddButton = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
+    overrideAddButton:SetSize(100, 24)
+    overrideAddButton:SetPoint("TOPRIGHT", globalDropdown, "BOTTOMRIGHT", 0, -14)
+    overrideAddButton:SetText("Add Override")
+    overrideAddButton:SetScript("OnClick", function()
+        MenuUtil.CreateContextMenu(UIParent, function(owner, rootDescription)
+            rootDescription:CreateTitle("Select Spell to Override");
+            for _, cdmFrame in ipairs(cooldownFrames) do
+                local cooldownInfo = cdmFrame:GetCooldownInfo()
+                if cooldownInfo then
+                    local spellID = cooldownInfo.overrideSpellID or cooldownInfo.spellID
+                    if db.showAurasSpellIDs[spellID] == nil then
+                        local spellName = cdmFrame:GetNameText() or C_Spell.GetSpellName(spellID) or
+                                              ("Spell " .. spellID)
+                        local texture = C_Spell.GetSpellTexture(spellID)
+                        local iconTag = texture and ("|T" .. texture .. ":14:14:0:0|t ") or ""
+                        local label = iconTag .. spellName .. " (ID: " .. spellID .. ")"
+
+                        rootDescription:CreateButton(label, function()
+                            db.showAurasSpellIDs[spellID] = not db.showAurasGlobal
+                            local action = db.showAurasSpellIDs[spellID] and "show" or "hide"
+                            print("Added override for spellID " .. spellID .. " (defaulting to " .. action .. " auras)")
+                            RefreshPanel()
+                        end)
+                    end
+                end
+            end
+        end)
+    end)
+
+    local scrollFrame = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -120)
+    scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 8)
+    scrollFrame:EnableMouseWheel(true)
+
+    local content = CreateFrame("Frame", nil, scrollFrame)
+    content:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
+    content:SetSize(scrollFrame:GetWidth(), scrollFrame:GetHeight())
+    scrollFrame:SetScrollChild(content)
+
+    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
+        local maxScroll = math.max(0, content:GetHeight() - self:GetHeight())
+        local step = 30
+        local newScroll = self:GetVerticalScroll() - (delta * step)
+        if newScroll < 0 then
+            newScroll = 0
+        elseif newScroll > maxScroll then
+            newScroll = maxScroll
+        end
+        self:SetVerticalScroll(newScroll)
+    end)
+
+    scrollFrame:SetScript("OnSizeChanged", function(self)
+        content:SetWidth(self:GetWidth())
+        RefreshPanel()
+    end)
+
+    frame.overrideScrollFrame = scrollFrame
+    frame.overrideContent = content
+
+    RefreshPanel()
+    AttachPanelToCooldownViewerSettings()
+end
+
 local function Run()
     HookCooldowns()
 end
@@ -169,7 +435,8 @@ f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 f:SetScript("OnEvent", function(self, event, eventAddonName)
     if event == "ADDON_LOADED" and eventAddonName == addonName then
         InitializeDB()
-        Run()
+        C_Timer.After(1, Run)
+        C_Timer.After(1, CreateWillsCDMSettingsFrame)
 
         self:UnregisterEvent("ADDON_LOADED")
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
@@ -197,6 +464,7 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             db.showAurasSpellIDs[spellID] = false
             print("Hiding auras for spellID " .. spellID .. ".")
             Run()
+            RefreshPanel()
         else
             print("Usage: /wcdm hide <spellID>")
         end
@@ -207,6 +475,7 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             db.showAurasSpellIDs[spellID] = true
             print("Showing auras for spellID " .. spellID .. ".")
             Run()
+            RefreshPanel()
         else
             print("Usage: /wcdm show <spellID>")
         end
@@ -218,11 +487,13 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             db.showAurasSpellIDs[spellID] = nil
             print("Cleared spellID override for " .. spellID .. ". Reverting to default behavior.")
             Run()
+            RefreshPanel()
         elseif arg == "all" then
             local db = GetDB()
             db.showAurasSpellIDs = {}
             print("Cleared all spellID overrides. Reverting to default behavior.")
             Run()
+            RefreshPanel()
         else
             print("Usage: /wcdm clear {<spellID>,all}")
         end
@@ -233,11 +504,13 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             db.showAurasGlobal = false
             print("Hide all auras. Specific spellIDs can be overridden to show auras using /wcdm show <spellID>.")
             Run()
+            RefreshPanel()
         elseif bool == "show" then
             local db = GetDB()
             db.showAurasGlobal = true
             print("Show all auras. Specific spellIDs can be overridden to hide auras using /wcdm hide <spellID>.")
             Run()
+            RefreshPanel()
         else
             local db = GetDB()
             local status = db.showAurasGlobal and "Shown" or "Hidden"
