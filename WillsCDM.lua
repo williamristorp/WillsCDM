@@ -1,7 +1,7 @@
 local addonName, _ = ...
 
 local defaults = {
-    showAurasGlobal = true,
+    showAurasGlobal = false,
     showAurasSpellIDs = {}
 }
 
@@ -18,13 +18,15 @@ local function ApplyDefaultsToTable(tbl, defaults)
     end
 end
 
-local function GetDB()
+local function InitializeDB()
     WillsDB = WillsDB or {}
     local db = WillsDB
 
     ApplyDefaultsToTable(db, defaults)
+end
 
-    return db
+local function GetDB()
+    return WillsDB
 end
 
 local function GetCooldownFrames()
@@ -62,10 +64,9 @@ local function showAurasForSpellID(spellID)
 end
 
 local function ForceIgnoreSpellAuras()
-    local cdOverrideCurve = C_CurveUtil.CreateCurve()
-    cdOverrideCurve:AddPoint(0, 0)
-    cdOverrideCurve:AddPoint(0.001, 1)
-    cdOverrideCurve:AddPoint(1, 1)
+    local desaturationCurve = C_CurveUtil.CreateCurve()
+    desaturationCurve:AddPoint(0, 0)
+    desaturationCurve:AddPoint(0.001, 1)
 
     local cooldownFrames = GetCooldownFrames()
 
@@ -89,21 +90,23 @@ local function ForceIgnoreSpellAuras()
                 end
 
                 local cooldownDuration = C_Spell.GetSpellCooldownDuration(spellID)
-                self:SetCooldownFromDurationObject(cooldownDuration)
-                desaturation = cooldownDuration:EvaluateRemainingPercent(cdOverrideCurve)
 
                 if C_Spell.GetSpellCharges(spellID) then
                     self:SetCooldownFromDurationObject(C_Spell.GetSpellChargeDuration(spellID))
+                else
+                    self:SetCooldownFromDurationObject(cooldownDuration)
+                end
 
-                    local cooldown = C_Spell.GetSpellCooldown(spellID)
-                    if cooldown and cooldown.isOnGCD then
-                        desaturation = 0
-                    end
+                local cooldown = C_Spell.GetSpellCooldown(spellID)
+                if cooldown and cooldown.isOnGCD then
+                    desaturation = 0
+                else
+                    desaturation = cooldownDuration:EvaluateRemainingPercent(desaturationCurve)
                 end
 
                 self:SetReverse(false)
                 self:SetDrawEdge(true)
-                self:SetSwipeColor(0, 0, 0, 0.8)
+                self:SetDrawSwipe(true)
             end)
 
             hooksecurefunc(cdmFrame.Icon, "SetDesaturated", function(self, desaturated)
@@ -121,33 +124,31 @@ local function ForceIgnoreSpellAuras()
                     return
                 end
 
-                if cdmFrame.wasSetFromAura and cdmFrame:GetAuraDataUnit() ~= "target" then
-                    self:SetDesaturation(desaturation)
-                end
-
-                -- TODO: If wasSetFromAura, it will never show swipe. This is because desatured is false when the aura is active.
-                -- Attempting to set swipe based on desaturation will not work in this case.
-                -- We also can't use wasSetFromAura to determine swipe state, because it may have a charge whether or not the aura is active.
-                -- Not that if the spell has an aura associated with it, and the aura is active, CooldownFlash will also be hidden.
-                -- For now, we just always hide the swipe. Ideally, swipe is shown when there are exactly 0 charges, hidden otherwise.
-                cdmFrame.Cooldown:SetDrawSwipe(false)
+                self:SetDesaturation(desaturation)
                 do
                     return
                 end
 
-                if InCombatLockdown() then
-                    -- We can use isSecret to determine if the spell has exactly 1 charge or not.
-                    if issecretvalue(desaturated) then
-                        -- The spell either has 0 or 2+ charges.
-                        -- We can use CooldownFlash to determine if we are at 0 charges (flash shown) or 2+ charges (flash hidden).
-                        cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.CooldownFlash:IsShown())
+                if cdmFrame.wasSetFromAura and cdmFrame:GetAuraDataUnit() ~= "target" then
+                    -- TODO: If wasSetFromAura, it will never show swipe. This is because desatured is false when the aura is active.
+                    -- Attempting to set swipe based on desaturation will not work in this case.
+                    -- We also can't use wasSetFromAura to determine swipe state, because it may have a charge whether or not the aura is active.
+                    -- Note that if the spell has an aura associated with it, and the aura is active, CooldownFlash will also be hidden.
+                    if InCombatLockdown() then
+                        -- We can use isSecret to determine if the spell has exactly 1 charge or not.
+                        if issecretvalue(desaturated) then
+                            -- The spell either has 0 or 2+ charges.
+                            -- We can use CooldownFlash to determine if we are at 0 charges (flash shown) or 2+ charges (flash hidden).
+                            cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.CooldownFlash:IsShown())
+                        else
+                            -- The spell has exactly 1 charge.
+                            cdmFrame.Cooldown:SetDrawSwipe(false)
+                        end
                     else
-                        -- The spell has exactly 1 charge.
-                        cdmFrame.Cooldown:SetDrawSwipe(false)
+                        -- We're not in combat, so we can use cooldownChargesCount and cooldownChargesShown.
+                        cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownChargesCount == 0 and
+                                                           cdmFrame.cooldownChargesShown)
                     end
-                else
-                    -- We're not in combat, so we can use cooldownChargesCount and cooldownChargesShown.
-                    cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownChargesCount == 0 and cdmFrame.cooldownChargesShown)
                 end
             end)
         end
@@ -163,6 +164,7 @@ f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 f:SetScript("OnEvent", function(self, event, eventAddonName)
     if event == "ADDON_LOADED" and eventAddonName == addonName then
+        InitializeDB()
         Run()
 
         self:UnregisterEvent("ADDON_LOADED")
