@@ -107,6 +107,7 @@ local function HookCooldowns()
                 self:SetReverse(false)
                 self:SetDrawEdge(true)
                 self:SetDrawSwipe(true)
+                self:SetSwipeColor(0, 0, 0, 0.7)
             end)
 
             hooksecurefunc(cdmFrame.Icon, "SetDesaturated", function(self, desaturated)
