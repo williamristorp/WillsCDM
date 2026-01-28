@@ -324,6 +324,7 @@ local function AttachPanelToCooldownViewerSettings()
     cooldownViewerSettings:HookScript("OnShow", function()
         if panelFrame then
             panelFrame:Show()
+            panelFrame:SetFrameStrata("DIALOG")
             RefreshPanel()
         end
     end)
