@@ -101,10 +101,9 @@ local function HookCooldowns()
 
                 local cooldownDuration = C_Spell.GetSpellCooldownDuration(spellID)
 
+                self:SetCooldownFromDurationObject(cooldownDuration)
                 if C_Spell.GetSpellCharges(spellID) then
                     self:SetCooldownFromDurationObject(C_Spell.GetSpellChargeDuration(spellID))
-                else
-                    self:SetCooldownFromDurationObject(cooldownDuration)
                 end
 
                 local cooldown = C_Spell.GetSpellCooldown(spellID)
@@ -180,7 +179,34 @@ local function SortedKeys(tbl)
     for k in pairs(tbl) do
         table.insert(keys, k)
     end
-    table.sort(keys)
+
+    local function IsSpellInPlayerSpellbook(spellID)
+        return C_SpellBook.IsSpellKnown(spellID)
+    end
+
+    local function SpellSortKey(spellID)
+        local name = (C_Spell and C_Spell.GetSpellName) and C_Spell.GetSpellName(spellID) or nil
+        if not name or name == "" then
+            name = tostring(spellID)
+        end
+        return name:lower()
+    end
+
+    table.sort(keys, function(a, b)
+        local aKnown = IsSpellInPlayerSpellbook(a)
+        local bKnown = IsSpellInPlayerSpellbook(b)
+        if aKnown ~= bKnown then
+            return aKnown
+        end
+
+        local aName = SpellSortKey(a)
+        local bName = SpellSortKey(b)
+        if aName ~= bName then
+            return aName < bName
+        end
+
+        return a < b
+    end)
     return keys
 end
 
@@ -236,7 +262,7 @@ local function RefreshPanel()
                     if not row.spellID then
                         return
                     end
-                    db.showAurasSpellIDs[row.spellID] = true
+                    db.showAurasSpellIDs[row.spellID] = AuraMode.SHOW
                     print("Set to show auras for spellID " .. row.spellID)
                     RefreshPanel()
                 end)
@@ -252,7 +278,7 @@ local function RefreshPanel()
                     if not row.spellID then
                         return
                     end
-                    db.showAurasSpellIDs[row.spellID] = false
+                    db.showAurasSpellIDs[row.spellID] = AuraMode.HIDE
                     print("Set to hide auras for spellID " .. row.spellID)
                     RefreshPanel()
                 end)
@@ -273,10 +299,14 @@ local function RefreshPanel()
             row:SetPoint("TOPLEFT", panelFrame.overrideContent, "TOPLEFT", 0, -(index - 1) * rowSpacing)
         end
 
+        local auraMode = db.showAurasSpellIDs[spellID]
+
         row.spellID = spellID
         row.icon:SetTexture(C_Spell.GetSpellTexture(spellID))
-        if getAuraModeForSpellID(spellID) then
+        if auraMode == AuraMode.SHOW then
             row.dropdown:SetDefaultText("Show Auras")
+        elseif auraMode == AuraMode.SWIPE then
+            row.dropdown:SetDefaultText("Show Swipe Color Only")
         else
             row.dropdown:SetDefaultText("Hide Auras")
         end
@@ -415,7 +445,7 @@ local function CreateWillsCDMSettingsFrame()
                         local label = iconTag .. spellName .. " (ID: " .. spellID .. ")"
 
                         rootDescription:CreateButton(label, function()
-                            db.showAurasSpellIDs[spellID] = not db.showAurasGlobal
+                            db.showAurasSpellIDs[spellID] = AuraMode.SHOW
                             local action = db.showAurasSpellIDs[spellID] and "show" or "hide"
                             print("Added override for spellID " .. spellID .. " (defaulting to " .. action .. " auras)")
                             RefreshPanel()
@@ -423,6 +453,37 @@ local function CreateWillsCDMSettingsFrame()
                     end
                 end
             end
+            rootDescription:CreateDivider()
+            rootDescription:CreateButton("Manual Spell ID Entry", function()
+                local inputFrame = CreateFrame("Frame", nil, UIParent, "BasicFrameTemplateWithInset")
+                inputFrame:SetSize(300, 120)
+                inputFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+                inputFrame.title = inputFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                inputFrame.title:SetPoint("CENTER", inputFrame.TitleBg, "CENTER", 0, -2)
+                inputFrame.title:SetText("Enter Spell ID to Override")
+                inputFrame.inputBox = CreateFrame("EditBox", nil, inputFrame, "InputBoxTemplate")
+                inputFrame.inputBox:SetSize(200, 30)
+                inputFrame.inputBox:SetPoint("TOP", inputFrame, "TOP", 0, -40)
+                inputFrame.inputBox:SetAutoFocus(true)
+                inputFrame.inputBox:SetNumeric(true)
+                inputFrame.inputBox:SetFocus()
+                inputFrame.confirmButton = CreateFrame("Button", nil, inputFrame, "GameMenuButtonTemplate")
+                inputFrame.confirmButton:SetSize(80, 24)
+                inputFrame.confirmButton:SetPoint("BOTTOMRIGHT", inputFrame, "BOTTOMRIGHT", -10, 10)
+                inputFrame.confirmButton:SetText("Confirm")
+                inputFrame.confirmButton:SetScript("OnClick", function()
+                    local spellID = tonumber(inputFrame.inputBox:GetText())
+                    if spellID then
+                        db.showAurasSpellIDs[spellID] = AuraMode.SHOW
+                        print("Added override for spellID " .. spellID .. " (defaulting to show auras)")
+                        RefreshPanel()
+                        inputFrame:Hide()
+                    else
+                        print("Invalid Spell ID entered.")
+                    end
+                end)
+                inputFrame:Show()
+            end)
         end)
     end)
 
@@ -476,6 +537,7 @@ f:SetScript("OnEvent", function(self, event, eventAddonName)
         self:UnregisterEvent("ADDON_LOADED")
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         Run()
+        RefreshPanel()
     end
 end)
 
