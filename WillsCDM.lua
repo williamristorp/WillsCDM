@@ -135,7 +135,7 @@ local function HookCooldowns()
                     -- Attempting to set swipe based on desaturation will not work in this case.
                     -- We also can't use wasSetFromAura to determine swipe state, because it may have a charge whether or not the aura is active.
                     -- Note that if the spell has an aura associated with it, and the aura is active, CooldownFlash will also be hidden.
-                    if InCombatLockdown() then
+                    if issecretvalue(cdmFrame.cooldownChargesCount) or issecretvalue(cdmFrame.cooldownChargesShown) then
                         -- We can use isSecret to determine if the spell has exactly 1 charge or not.
                         if issecretvalue(desaturated) then
                             -- The spell either has 0 or 2+ charges.
