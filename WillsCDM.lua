@@ -368,31 +368,26 @@ local function Run()
     Menu.ModifyMenu("COOLDOWN_VIEWER_SETTINGS_MENU", function(owner, rootDescription, contextData)
         rootDescription:CreateDivider()
         rootDescription:CreateTitle("Will's CDM")
-        rootDescription:CreateButton("Hide All Auras", function()
-            StaticPopupDialogs["WILLS_CDM_HIDE_ALL_AURAS"] = {
-                text = "Are you sure you want to hide all auras?",
-                button1 = "Yes",
-                button2 = "No",
-                OnAccept = function()
-                    SetShowAuraAll(false)
-                    RefreshCooldownManagerFrames()
-                end
-            }
-
-            StaticPopup_Show("WILLS_CDM_HIDE_ALL_AURAS")
+        rootDescription:CreateCheckbox("Default Show Auras", function()
+            local db = GetDB()
+            return db.defaultShowAuras
+        end, function()
+            local db = GetDB()
+            db.defaultShowAuras = not db.defaultShowAuras
         end)
-        rootDescription:CreateButton("Show All Auras", function()
-            StaticPopupDialogs["WILLS_CDM_SHOW_ALL_AURAS"] = {
-                text = "Are you sure you want to show all auras?",
+        rootDescription:CreateButton("Apply Default Show Auras", function()
+            StaticPopupDialogs["WILLS_CDM_APPLY_DEFAULT_SHOW_AURAS"] = {
+                text = "Are you sure you want to apply the default show auras setting to all spells?",
                 button1 = "Yes",
                 button2 = "No",
                 OnAccept = function()
-                    SetShowAuraAll(true)
+                    local db = GetDB()
+                    SetShowAuraAll(db.defaultShowAuras)
                     RefreshCooldownManagerFrames()
                 end
             }
 
-            StaticPopup_Show("WILLS_CDM_SHOW_ALL_AURAS")
+            StaticPopup_Show("WILLS_CDM_APPLY_DEFAULT_SHOW_AURAS")
         end)
         rootDescription:CreateDivider()
 
