@@ -1,15 +1,13 @@
 local addonName, _ = ...
 
-local panelFrame
-
-AuraMode = {
-    SHOW = 1,
-    HIDE = 2
-}
+local DEFAULT_COOLDOWN_SWIPE_COLOR = {0, 0, 0, 0.7}
+local DEFAULT_AURA_SWIPE_COLOR = {1, 0.95, 0.57, 0.7}
 
 local dbDefaults = {
-    showAurasGlobal = AuraMode.HIDE,
-    showAurasSpellIDs = {}
+    defaultCooldownSwipeColor = {unpack(DEFAULT_COOLDOWN_SWIPE_COLOR)},
+    defaultAuraSwipeColor = {unpack(DEFAULT_AURA_SWIPE_COLOR)},
+    defaultShowAuras = true,
+    spellSettings = {}
 }
 
 local function ApplyDefaultsToTable(tbl, defaults)
@@ -36,6 +34,60 @@ local function GetDB()
     return WillsDB
 end
 
+local function CreateSpellSettings(spellID)
+    local db = GetDB()
+    local defaultCooldownSwipeColor = db.defaultCooldownSwipeColor
+    local defaultAuraSwipeColor = db.defaultAuraSwipeColor
+
+    db.spellSettings[spellID] = {
+        showAura = db.defaultShowAuras,
+        cooldownSwipeColor = {unpack(defaultCooldownSwipeColor)},
+        auraSwipeColor = {unpack(defaultAuraSwipeColor)}
+    }
+end
+
+local function EnsureSpellSettings(spellID)
+    local db = GetDB()
+
+    if db.spellSettings[spellID] == nil then
+        CreateSpellSettings(spellID)
+    end
+
+    return db.spellSettings[spellID]
+end
+
+local function GetCooldownSwipeColor(spellID)
+    local settings = EnsureSpellSettings(spellID)
+    return settings.cooldownSwipeColor
+end
+
+local function GetAuraSwipeColor(spellID)
+    local settings = EnsureSpellSettings(spellID)
+    return settings.auraSwipeColor
+end
+
+local function GetShowAura(spellID)
+    local settings = EnsureSpellSettings(spellID)
+    return settings.showAura
+end
+
+local function SetShowAura(spellID, value)
+    local settings = EnsureSpellSettings(spellID)
+    settings.showAura = value
+end
+
+local function ToggleShowAura(spellID)
+    local current = GetShowAura(spellID)
+    SetShowAura(spellID, not current)
+end
+
+local function SetShowAuraAll(value)
+    local db = GetDB()
+    for spellID, _ in pairs(db.spellSettings) do
+        db.spellSettings[spellID].showAura = value
+    end
+end
+
 local function GetCooldownFrames()
     local frames = {}
 
@@ -60,19 +112,82 @@ local function GetCooldownFrames()
     return frames
 end
 
-local function getAuraModeForSpellID(spellID)
-    local db = GetDB()
-
-    if db.showAurasSpellIDs[spellID] ~= nil then
-        return db.showAurasSpellIDs[spellID]
-    else
-        return db.showAurasGlobal
-    end
-end
-
 local desaturationCurve = C_CurveUtil.CreateCurve()
 desaturationCurve:AddPoint(0, 0)
 desaturationCurve:AddPoint(0.001, 1)
+
+local function ApplyCooldownSettings(cdmFrame)
+    local cooldownInfo = cdmFrame:GetCooldownInfo()
+    if cooldownInfo == nil then
+        return
+    end
+
+    local spellID = cooldownInfo.spellID
+    if not spellID then
+        return
+    end
+
+    local showAura = GetShowAura(spellID)
+
+    if showAura and cdmFrame.wasSetFromAura then
+        cdmFrame.Cooldown:SetSwipeColor(unpack(GetAuraSwipeColor(spellID)))
+    else
+        cdmFrame.Cooldown:SetSwipeColor(unpack(GetCooldownSwipeColor(spellID)))
+    end
+
+    cdmFrame.Cooldown:SetDrawEdge(true)
+    if showAura then
+        return
+    end
+
+    local cooldownDuration = C_Spell.GetSpellCooldownDuration(spellID)
+    cdmFrame.Cooldown:SetCooldownFromDurationObject(cooldownDuration)
+    if C_Spell.GetSpellCharges(spellID) then
+        cdmFrame.Cooldown:SetCooldownFromDurationObject(C_Spell.GetSpellChargeDuration(spellID))
+    end
+
+    local cooldown = C_Spell.GetSpellCooldown(spellID)
+    if cooldown and cooldown.isOnGCD then
+        cdmFrame.WillsCDM_Desaturation = 0
+    else
+        cdmFrame.WillsCDM_Desaturation = cooldownDuration:EvaluateRemainingPercent(desaturationCurve)
+    end
+
+    cdmFrame.Cooldown:SetReverse(false)
+end
+
+local function ApplyIconSettings(cdmFrame)
+    local cooldownInfo = cdmFrame:GetCooldownInfo()
+    if cooldownInfo == nil then
+        return
+    end
+
+    local spellID = cooldownInfo.spellID
+    if not spellID then
+        return
+    end
+
+    if GetShowAura(spellID) then
+        cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownShowSwipe == true)
+        return
+    end
+
+    if cdmFrame.wasSetFromAura then
+        cdmFrame.Icon:SetDesaturation(cdmFrame.WillsCDM_Desaturation)
+    end
+
+    if cdmFrame.wasSetFromAura and cdmFrame:GetAuraDataUnit() ~= "target" then
+        if issecretvalue(cdmFrame.cooldownChargesCount) or issecretvalue(cdmFrame.cooldownChargesShown) then
+            if issecretvalue(cdmFrame.Icon:IsDesaturated()) then
+                cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.CooldownFlash:IsShown())
+            else
+                cdmFrame.Cooldown:SetDrawSwipe(false)
+            end
+        else
+            cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownChargesCount == 0 and cdmFrame.cooldownChargesShown == true)
+        end
+    end
+end
 
 local function HookFrame(cdmFrame)
     if cdmFrame.WillsCDM_Hooked or cdmFrame.Cooldown == nil or cdmFrame.Icon == nil then
@@ -80,89 +195,17 @@ local function HookFrame(cdmFrame)
     end
 
     hooksecurefunc(cdmFrame.Cooldown, "SetCooldown", function(self)
-        local cdmFrame = self:GetParent()
-        local cooldownInfo = cdmFrame:GetCooldownInfo()
-
-        if cooldownInfo == nil then
-            return
-        end
-
-        local spellID = cooldownInfo.overrideSpellID or cooldownInfo.spellID
-        local auraMode = getAuraModeForSpellID(spellID)
-        self:SetDrawEdge(true)
-
-        if auraMode == AuraMode.SHOW then
-            -- Blizzard already shows the aura by default, so we just don't interfere.
-            return
-        end
-
-        local cooldownDuration = C_Spell.GetSpellCooldownDuration(spellID)
-
-        self:SetCooldownFromDurationObject(cooldownDuration)
-        if C_Spell.GetSpellCharges(spellID) then
-            self:SetCooldownFromDurationObject(C_Spell.GetSpellChargeDuration(spellID))
-        end
-
-        local cooldown = C_Spell.GetSpellCooldown(spellID)
-        if cooldown and cooldown.isOnGCD then
-            cdmFrame.WillsCDM_Desaturation = 0
-        else
-            cdmFrame.WillsCDM_Desaturation = cooldownDuration:EvaluateRemainingPercent(desaturationCurve)
-        end
-
-        if auraMode == AuraMode.HIDE then
-            -- Blizzard sets the swipe color when showing aura duration.
-            self:SetSwipeColor(0, 0, 0, 0.7)
-            self:SetReverse(false)
-        end
+        ApplyCooldownSettings(self:GetParent())
     end)
 
-    hooksecurefunc(cdmFrame.Icon, "SetDesaturated", function(self, desaturated)
-        local cdmFrame = self:GetParent()
-        local cooldownInfo = cdmFrame:GetCooldownInfo()
-
-        if cooldownInfo == nil then
-            return
-        end
-
-        local spellID = cooldownInfo.overrideSpellID or cooldownInfo.spellID
-        local auraMode = getAuraModeForSpellID(spellID)
-
-        if auraMode == AuraMode.SHOW then
-            cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownShowSwipe == true)
-            return
-        end
-
-        if cdmFrame.wasSetFromAura then
-            self:SetDesaturation(cdmFrame.WillsCDM_Desaturation)
-        end
-
-        if cdmFrame.wasSetFromAura and cdmFrame:GetAuraDataUnit() ~= "target" then
-            -- TODO: If wasSetFromAura, it will never show swipe. This is because desatured is false when the aura is active.
-            -- Attempting to set swipe based on desaturation will not work in this case.
-            -- We also can't use wasSetFromAura to determine swipe state, because it may have a charge whether or not the aura is active.
-            -- Note that if the spell has an aura associated with it, and the aura is active, CooldownFlash will also be hidden.
-            if issecretvalue(cdmFrame.cooldownChargesCount) or issecretvalue(cdmFrame.cooldownChargesShown) then
-                -- We can use isSecret to determine if the spell has exactly 1 charge or not.
-                if issecretvalue(desaturated) then
-                    -- The spell either has 0 or 2+ charges.
-                    -- We can use CooldownFlash to determine if we are at 0 charges (flash shown) or 2+ charges (flash hidden).
-                    cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.CooldownFlash:IsShown())
-                else
-                    -- The spell has exactly 1 charge.
-                    cdmFrame.Cooldown:SetDrawSwipe(false)
-                end
-            else
-                -- We're not in combat, so we can use cooldownChargesCount and cooldownChargesShown.
-                cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownChargesCount == 0 and cdmFrame.cooldownChargesShown)
-            end
-        end
+    hooksecurefunc(cdmFrame.Icon, "SetDesaturated", function(self)
+        ApplyIconSettings(self:GetParent())
     end)
 
     cdmFrame.WillsCDM_Hooked = true
 end
 
-local function HookFrames()
+local function HookCooldownFrames()
     local cooldownFrames = GetCooldownFrames()
 
     for _, cdmFrame in ipairs(cooldownFrames) do
@@ -170,6 +213,21 @@ local function HookFrames()
             if cdmFrame.Cooldown ~= nil then
                 HookFrame(cdmFrame)
             end
+        end
+    end
+end
+
+local function RefreshCooldownManagerFrames()
+    if InCombatLockdown() then
+        return
+    end
+
+    HookCooldownFrames()
+
+    for _, cdmFrame in ipairs(GetCooldownFrames()) do
+        if cdmFrame.Cooldown and cdmFrame.Icon then
+            ApplyCooldownSettings(cdmFrame)
+            ApplyIconSettings(cdmFrame)
         end
     end
 end
@@ -210,331 +268,201 @@ local function SortedKeys(tbl)
     return keys
 end
 
-local RefreshPanel
-
-local function CreateOverrideRow(parent)
-    local row = CreateFrame("Frame", nil, parent)
-    row:SetSize(220, 32)
-
-    row.icon = row:CreateTexture(nil, "ARTWORK")
-    row.icon:SetSize(32, 32)
-    row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
-
-    row.dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
-    row.dropdown:SetSize(140, 24)
-    row.dropdown:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-
-    row.clearButton = CreateFrame("Button", nil, row, "GameMenuButtonTemplate")
-    row.clearButton:SetSize(24, 24)
-    row.clearButton:SetPoint("LEFT", row.dropdown, "RIGHT", 3, 0)
-    row.clearButton:SetText("X")
-
-    row.icon:SetScript("OnEnter", function(self)
-        if not row.spellID then
-            return
-        end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetSpellByID(row.spellID)
-        GameTooltip:Show()
-    end)
-    row.icon:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
-
-    row.dropdown:SetupMenu(function(owner, rootDescription)
-        rootDescription:CreateButton("Show Auras", function()
-            if not row.spellID then
-                return
-            end
-
-            local db = GetDB()
-            db.showAurasSpellIDs[row.spellID] = AuraMode.SHOW
-            RefreshPanel()
-        end)
-        rootDescription:CreateButton("Hide Auras", function()
-            if not row.spellID then
-                return
-            end
-
-            local db = GetDB()
-            db.showAurasSpellIDs[row.spellID] = AuraMode.HIDE
-            RefreshPanel()
-        end)
-    end)
-
-    row.clearButton:SetScript("OnClick", function()
-        if not row.spellID then
-            return
-        end
-
-        local db = GetDB()
-        db.showAurasSpellIDs[row.spellID] = nil
-        RefreshPanel()
-    end)
-
-    return row
+local function GetColorSwatchDisplayInfo(colorTable)
+    return {
+        r = colorTable[1] or 0,
+        g = colorTable[2] or 0,
+        b = colorTable[3] or 0,
+        opacity = colorTable[4] or 1,
+        hasOpacity = 1
+    }
 end
 
-local function LayoutOverrideRow(row, parent, index, rowSpacing)
-    row:SetParent(parent)
-    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * rowSpacing)
-end
-
-local function UpdateOverrideRow(row, spellID, auraMode)
-    row.spellID = spellID
-    row.icon:SetTexture(C_Spell.GetSpellTexture(spellID))
-
-    if auraMode == AuraMode.SHOW then
-        row.dropdown:OverrideText("Show Auras")
-    elseif auraMode == AuraMode.HIDE then
-        row.dropdown:OverrideText("Hide Auras")
-    end
-end
-
-RefreshPanel = function()
-    if not panelFrame or not panelFrame:IsShown() then
-        return
+local function BuildColorPickerInfo(colorTable, onChanged)
+    local function NotifyChanged()
+        if onChanged then
+            onChanged()
+        end
     end
 
-    if not panelFrame.overrideScrollFrame or not panelFrame.overrideContent then
-        return
+    local colorInfo = GetColorSwatchDisplayInfo(colorTable)
+
+    colorInfo.swatchFunc = function()
+        local r, g, b = ColorPickerFrame:GetColorRGB()
+        colorTable[1] = r
+        colorTable[2] = g
+        colorTable[3] = b
+        NotifyChanged()
     end
 
-    local db = GetDB()
+    colorInfo.opacityFunc = function()
+        local a = ColorPickerFrame:GetColorAlpha()
+        colorTable[4] = a
+        NotifyChanged()
+    end
 
-    local globalStatus = db.showAurasGlobal == AuraMode.SHOW and "Show All Auras" or "Hide All Auras"
-    panelFrame.globalDropdown:OverrideText(globalStatus)
-
-    local keys = SortedKeys(db.showAurasSpellIDs)
-
-    local rowSpacing = 40
-
-    for index, spellID in ipairs(keys) do
-        local row = panelFrame.overrideRows[index]
-        if not row then
-            row = CreateOverrideRow(panelFrame.overrideContent)
-            panelFrame.overrideRows[index] = row
+    colorInfo.cancelFunc = function(previous)
+        if previous and previous.r ~= nil then
+            colorTable[1] = previous.r
+        end
+        if previous and previous.g ~= nil then
+            colorTable[2] = previous.g
+        end
+        if previous and previous.b ~= nil then
+            colorTable[3] = previous.b
         end
 
-        LayoutOverrideRow(row, panelFrame.overrideContent, index, rowSpacing)
-        local auraMode = db.showAurasSpellIDs[spellID]
+        local a = previous and (previous.a ~= nil and previous.a or previous.opacity)
+        if a ~= nil then
+            colorTable[4] = a
+        end
 
-        UpdateOverrideRow(row, spellID, auraMode)
-        row:Show()
+        NotifyChanged()
     end
 
-    local scrollFrame = panelFrame.overrideScrollFrame
-    local content = panelFrame.overrideContent
-    local contentHeight = math.max(#keys * rowSpacing, scrollFrame:GetHeight())
-    content:SetHeight(contentHeight)
-
-    local maxScroll = math.max(0, content:GetHeight() - scrollFrame:GetHeight())
-    if scrollFrame:GetVerticalScroll() > maxScroll then
-        scrollFrame:SetVerticalScroll(maxScroll)
-    end
-
-    for index = #keys + 1, #panelFrame.overrideRows do
-        panelFrame.overrideRows[index]:Hide()
-        panelFrame.overrideRows[index].spellID = nil
-    end
+    return colorInfo
 end
 
-local function AttachPanelToCooldownViewerSettings()
-    if not panelFrame then
-        return
-    end
-
-    local cooldownViewerSettings = _G["CooldownViewerSettings"]
-
-    local xOffset = 55
-
-    panelFrame:ClearAllPoints()
-    panelFrame:SetPoint("TOPLEFT", cooldownViewerSettings, "TOPRIGHT", xOffset, 0)
-    panelFrame:SetPoint("BOTTOMLEFT", cooldownViewerSettings, "BOTTOMRIGHT", xOffset, 3)
-    panelFrame:SetWidth(256)
-
-    cooldownViewerSettings:HookScript("OnShow", function()
-        if panelFrame and not InCombatLockdown() then
-            panelFrame:Show()
-            panelFrame:SetFrameStrata("DIALOG")
-            RefreshPanel()
-        end
-    end)
-
-    cooldownViewerSettings:HookScript("OnHide", function()
-        if panelFrame then
-            panelFrame:Hide()
-        end
-    end)
-
-    if cooldownViewerSettings:IsShown() then
-        panelFrame:Show()
-    else
-        panelFrame:Hide()
-    end
-end
-
-local function CreateWillsCDMSettingsFrame()
-    local frame = CreateFrame("Frame", "WillsCDMSettings", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(256, 512)
-    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    frame.title:SetPoint("CENTER", frame.TitleBg, "CENTER", 0, -2)
-    frame.title:SetText("Will's CDM Aura Settings")
-
-    frame.overrideRows = {}
-    panelFrame = frame
-
-    frame:Hide()
-
-    local db = GetDB()
-
-    local globalLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    globalLabel:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -40)
-    globalLabel:SetText("Global")
-
-    local globalDropdown = CreateFrame("DropdownButton", nil, frame, "WowStyle1DropdownTemplate")
-    globalDropdown:SetSize(216, 24)
-    globalDropdown:SetPoint("TOPLEFT", globalLabel, "TOPLEFT", 0, -15)
-    globalDropdown:SetupMenu(function(owner, rootDescription)
-        rootDescription:CreateTitle("Default Aura Display");
-        rootDescription:CreateButton("Show All Auras", function(data)
-            db.showAurasGlobal = AuraMode.SHOW
-            owner:OverrideText("Show All Auras")
-        end);
-        rootDescription:CreateButton("Hide All Auras", function(data)
-            db.showAurasGlobal = AuraMode.HIDE
-            owner:OverrideText("Hide All Auras")
-        end);
-    end)
-    if db.showAurasGlobal == AuraMode.SHOW then
-        globalDropdown:OverrideText("Show All Auras")
-    elseif db.showAurasGlobal == AuraMode.HIDE then
-        globalDropdown:OverrideText("Hide All Auras")
-    end
-    frame.globalDropdown = globalDropdown
-
-    local overrideLabel = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    overrideLabel:SetPoint("TOPLEFT", globalDropdown, "BOTTOMLEFT", 0, -20)
-    overrideLabel:SetText("Overrides")
-
-    local overrideAddButton = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
-    overrideAddButton:SetSize(100, 24)
-    overrideAddButton:SetPoint("TOPRIGHT", globalDropdown, "BOTTOMRIGHT", 0, -14)
-    overrideAddButton:SetText("Add Override")
-    overrideAddButton:SetScript("OnClick", function()
-        MenuUtil.CreateContextMenu(overrideAddButton, function(owner, rootDescription)
-            rootDescription:CreateTitle("Select Spell to Override");
-            for _, cdmFrame in ipairs(GetCooldownFrames()) do
-                local cooldownInfo = cdmFrame:GetCooldownInfo()
-                if cooldownInfo then
-                    local spellID = cooldownInfo.spellID
-                    if db.showAurasSpellIDs[spellID] == nil then
-                        local spellName = C_Spell.GetSpellName(spellID)
-                        local texture = C_Spell.GetSpellTexture(spellID)
-                        local iconTag = texture and ("|T" .. texture .. ":14:14:0:0|t ") or ""
-                        local label = iconTag .. spellName .. " (ID: " .. spellID .. ")"
-
-                        rootDescription:CreateButton(label, function()
-                            local db = GetDB()
-                            db.showAurasSpellIDs[spellID] = AuraMode.SHOW
-                            RefreshPanel()
-                        end)
-                    end
-                end
-            end
-            rootDescription:CreateDivider()
-            rootDescription:CreateButton("Manual Spell ID Entry", function()
-                local inputFrame = CreateFrame("Frame", nil, UIParent, "BasicFrameTemplateWithInset")
-                inputFrame:SetSize(300, 120)
-                inputFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-                inputFrame.title = inputFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                inputFrame.title:SetPoint("CENTER", inputFrame.TitleBg, "CENTER", 0, -2)
-                inputFrame.title:SetText("Enter Spell ID to Override")
-                inputFrame.inputBox = CreateFrame("EditBox", nil, inputFrame, "InputBoxTemplate")
-                inputFrame.inputBox:SetSize(200, 30)
-                inputFrame.inputBox:SetPoint("TOP", inputFrame, "TOP", 0, -40)
-                inputFrame.inputBox:SetAutoFocus(true)
-                inputFrame.inputBox:SetNumeric(true)
-                inputFrame.inputBox:SetFocus()
-                inputFrame.confirmButton = CreateFrame("Button", nil, inputFrame, "GameMenuButtonTemplate")
-                inputFrame.confirmButton:SetSize(80, 24)
-                inputFrame.confirmButton:SetPoint("BOTTOMRIGHT", inputFrame, "BOTTOMRIGHT", -10, 10)
-                inputFrame.confirmButton:SetText("Confirm")
-                inputFrame.confirmButton:SetScript("OnClick", function()
-                    local spellID = tonumber(inputFrame.inputBox:GetText())
-                    if spellID then
-                        db.showAurasSpellIDs[spellID] = AuraMode.SHOW
-                        RefreshPanel()
-                        inputFrame:Hide()
-                    else
-                        print("Invalid Spell ID entered.")
-                    end
-                end)
-                inputFrame:Show()
-            end)
-        end)
-    end)
-
-    local scrollFrame = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -120)
-    scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 8)
-    scrollFrame:EnableMouseWheel(true)
-
-    local content = CreateFrame("Frame", nil, scrollFrame)
-    content:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, 0)
-    content:SetSize(scrollFrame:GetWidth(), scrollFrame:GetHeight())
-    scrollFrame:SetScrollChild(content)
-
-    scrollFrame:SetScript("OnMouseWheel", function(self, delta)
-        local maxScroll = math.max(0, content:GetHeight() - self:GetHeight())
-        local step = 30
-        local newScroll = self:GetVerticalScroll() - (delta * step)
-        if newScroll < 0 then
-            newScroll = 0
-        elseif newScroll > maxScroll then
-            newScroll = maxScroll
-        end
-        self:SetVerticalScroll(newScroll)
-    end)
-
-    scrollFrame:SetScript("OnSizeChanged", function(self)
-        content:SetWidth(self:GetWidth())
-        RefreshPanel()
-    end)
-
-    frame.overrideScrollFrame = scrollFrame
-    frame.overrideContent = content
-
-    RefreshPanel()
-    AttachPanelToCooldownViewerSettings()
+local function AddColorSwatch(rootDescription, label, colorTable, onChanged)
+    rootDescription:CreateColorSwatch(label, function()
+        ColorPickerFrame:SetupColorPickerAndShow(BuildColorPickerInfo(colorTable, onChanged))
+    end, GetColorSwatchDisplayInfo(colorTable))
 end
 
 local function Run()
-    HookFrames()
+    HookCooldownFrames()
 
     EventRegistry:RegisterCallback("CooldownViewerSettings.OnDataChanged", function()
-        HookFrames()
+        HookCooldownFrames()
     end)
-end
 
-local function ClosePanelsForCombat()
-    if panelFrame and panelFrame:IsShown() then
-        panelFrame:Hide()
-    end
+    EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow", function()
+        HookCooldownFrames()
+    end)
+
+    Menu.ModifyMenu("MENU_COOLDOWN_SETTINGS_ITEM", function(owner, rootDescription, contextData)
+        local spellID = owner:GetBaseSpellID()
+        local settings = EnsureSpellSettings(spellID)
+
+        rootDescription:CreateDivider()
+        rootDescription:CreateTitle("Will's CDM")
+
+        AddColorSwatch(rootDescription, "Cooldown Swipe Color", settings.cooldownSwipeColor,
+            RefreshCooldownManagerFrames)
+
+        rootDescription:CreateCheckbox("Show Aura", function(...)
+            return GetShowAura(spellID)
+        end, function()
+            ToggleShowAura(spellID)
+            RefreshCooldownManagerFrames()
+        end)
+
+        AddColorSwatch(rootDescription, "Aura Swipe Color", settings.auraSwipeColor, RefreshCooldownManagerFrames)
+
+        rootDescription:CreateButton("Reset to Defaults", function()
+            CreateSpellSettings(spellID)
+            RefreshCooldownManagerFrames()
+        end)
+    end)
+
+    Menu.ModifyMenu("COOLDOWN_VIEWER_SETTINGS_MENU", function(owner, rootDescription, contextData)
+        rootDescription:CreateDivider()
+        rootDescription:CreateTitle("Will's CDM")
+        rootDescription:CreateButton("Hide All Auras", function()
+            StaticPopupDialogs["WILLS_CDM_HIDE_ALL_AURAS"] = {
+                text = "Are you sure you want to hide all auras?",
+                button1 = "Yes",
+                button2 = "No",
+                OnAccept = function()
+                    SetShowAuraAll(false)
+                    RefreshCooldownManagerFrames()
+                end
+            }
+
+            StaticPopup_Show("WILLS_CDM_HIDE_ALL_AURAS")
+        end)
+        rootDescription:CreateButton("Show All Auras", function()
+            StaticPopupDialogs["WILLS_CDM_SHOW_ALL_AURAS"] = {
+                text = "Are you sure you want to show all auras?",
+                button1 = "Yes",
+                button2 = "No",
+                OnAccept = function()
+                    SetShowAuraAll(true)
+                    RefreshCooldownManagerFrames()
+                end
+            }
+
+            StaticPopup_Show("WILLS_CDM_SHOW_ALL_AURAS")
+        end)
+        rootDescription:CreateDivider()
+
+        local db = GetDB()
+        AddColorSwatch(rootDescription, "Default Cooldown Swipe Color", db.defaultCooldownSwipeColor,
+            RefreshCooldownManagerFrames)
+
+        rootDescription:CreateButton("Reset Default Cooldown Swipe Color", function()
+            local db = GetDB()
+            db.defaultCooldownSwipeColor = {unpack(DEFAULT_COOLDOWN_SWIPE_COLOR)}
+            RefreshCooldownManagerFrames()
+        end)
+
+        rootDescription:CreateButton("Apply Default Cooldown Swipe Color", function()
+            StaticPopupDialogs["WILLS_CDM_APPLY_DEFAULT_COOLDOWN_SWIPE_COLOR"] = {
+                text = "Are you sure you want to apply the default cooldown swipe color to all spells?",
+                button1 = "Yes",
+                button2 = "No",
+                OnAccept = function()
+                    local db = GetDB()
+                    local r, g, b, a = unpack(db.defaultCooldownSwipeColor)
+                    for spellID, _ in pairs(db.spellSettings) do
+                        db.spellSettings[spellID].cooldownSwipeColor = {r, g, b, a}
+                    end
+                    RefreshCooldownManagerFrames()
+                end
+            }
+
+            StaticPopup_Show("WILLS_CDM_APPLY_DEFAULT_COOLDOWN_SWIPE_COLOR")
+        end)
+
+        rootDescription:CreateDivider()
+
+        AddColorSwatch(rootDescription, "Default Aura Swipe Color", db.defaultAuraSwipeColor,
+            RefreshCooldownManagerFrames)
+
+        rootDescription:CreateButton("Reset Default Aura Swipe Color", function()
+            local db = GetDB()
+            db.defaultAuraSwipeColor = {unpack(DEFAULT_AURA_SWIPE_COLOR)}
+            RefreshCooldownManagerFrames()
+        end)
+
+        rootDescription:CreateButton("Apply Default Aura Swipe Color", function()
+            StaticPopupDialogs["WILLS_CDM_APPLY_DEFAULT_AURA_SWIPE_COLOR"] = {
+                text = "Are you sure you want to apply the default aura swipe color to all spells?",
+                button1 = "Yes",
+                button2 = "No",
+                OnAccept = function()
+                    local db = GetDB()
+                    local r, g, b, a = unpack(db.defaultAuraSwipeColor)
+                    for spellID, _ in pairs(db.spellSettings) do
+                        db.spellSettings[spellID].auraSwipeColor = {r, g, b, a}
+                    end
+                    RefreshCooldownManagerFrames()
+                end
+            }
+
+            StaticPopup_Show("WILLS_CDM_APPLY_DEFAULT_AURA_SWIPE_COLOR")
+        end)
+    end)
 end
 
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
-f:RegisterEvent("PLAYER_REGEN_DISABLED")
 f:SetScript("OnEvent", function(self, event, eventAddonName)
     if event == "ADDON_LOADED" and eventAddonName == addonName then
         InitializeDB()
-        C_Timer.After(1, Run)
-        C_Timer.After(1, CreateWillsCDMSettingsFrame)
+        Run()
 
         self:UnregisterEvent("ADDON_LOADED")
-    elseif event == "PLAYER_REGEN_DISABLED" then
-        ClosePanelsForCombat()
     end
 end)
 
@@ -547,93 +475,70 @@ local function starts_with(str, start)
     return str:sub(1, #start) == start
 end
 
+local function PrintIsShowAura(spellID)
+    local spellName = C_Spell.GetSpellName(spellID) or "Unknown Spell"
+
+    if GetShowAura(spellID) then
+        print(spellName .. " (ID: " .. spellID .. ") has aura enabled.")
+    else
+        print(spellName .. " (ID: " .. spellID .. ") has aura disabled (cooldown forced).")
+    end
+end
+
+local function PrintHelp()
+    print("/cdm - Open Advanced Cooldown Settings panel")
+    print("/wcdm settings - Open Advanced Cooldown Settings panel")
+    print("/wcdm force {<spellID>,all} - Disable aura (force cooldown) for <spellID> or all spell IDs")
+    print("/wcdm clear {<spellID>,all} - Enable aura for <spellID> or all spell IDs")
+    print("/wcdm <spellID> - Show settings for spell ID")
+    print("/wcdm help - Show this help message")
+    print()
+    print("Note: Right click spells in the Advanced Cooldown Settings panel to change its settings.")
+end
+
 SLASH_WCDM1 = "/wcdm"
 SlashCmdList["WCDM"] = function(msg, editBox)
     if msg == "settings" then
         ShowUIPanel(CooldownViewerSettings)
-    elseif starts_with(msg, "hide") then
-        local spellID = tonumber(msg:match("hide%s+(%d+)"))
-        if spellID then
-            local db = GetDB()
-            db.showAurasSpellIDs[spellID] = AuraMode.HIDE
-            print("Hiding auras for spellID " .. spellID .. ".")
-            RefreshPanel()
-        else
-            print("Usage: /wcdm hide <spellID>")
+    elseif starts_with(msg, "force") then
+        local arg = msg:match("force%s+(%S+)")
+        if arg == "all" then
+            SetShowAuraAll(false)
+            return
         end
-    elseif starts_with(msg, "show") then
-        local spellID = tonumber(msg:match("show%s+(%d+)"))
+
+        local spellID = tonumber(msg:match("force%s+(%d+)"))
         if spellID then
-            local db = GetDB()
-            db.showAurasSpellIDs[spellID] = AuraMode.SHOW
-            print("Showing auras for spellID " .. spellID .. ".")
-            RefreshPanel()
-        else
-            print("Usage: /wcdm show <spellID>")
+            SetShowAura(spellID, false)
+            return
         end
+
+        print("Usage: /wcdm force {<spellID>,all}")
     elseif starts_with(msg, "clear") then
         local arg = msg:match("clear%s+(%S+)")
+        if arg == "all" then
+            SetShowAuraAll(true)
+            return
+        end
+
+        local spellID = tonumber(msg:match("clear%s+(%d+)"))
+        if spellID then
+            SetShowAura(spellID, true)
+            return
+        end
+
+        print("Usage: /wcdm clear {<spellID>,all}")
+    elseif msg == "help" then
+        PrintHelp()
+    else
+        local arg = msg:match("%S+")
         local spellID = tonumber(arg)
         if spellID then
-            local db = GetDB()
-            db.showAurasSpellIDs[spellID] = nil
-            print("Cleared spellID override for " .. spellID .. ". Reverting to default behavior.")
-            RefreshPanel()
-        elseif arg == "all" then
-            local db = GetDB()
-            db.showAurasSpellIDs = {}
-            print("Cleared all spellID overrides. Reverting to default behavior.")
-            RefreshPanel()
-        else
-            print("Usage: /wcdm clear {<spellID>,all}")
+            PrintIsShowAura(spellID)
+            return
         end
-    elseif starts_with(msg, "default") then
-        local arg = msg:match("default%s+(%S+)")
-        if arg == "hide" then
-            local db = GetDB()
-            db.showAurasGlobal = AuraMode.HIDE
-            print("Hide all auras. Specific spellIDs can be overridden to show auras using /wcdm show <spellID>.")
-            RefreshPanel()
-        elseif arg == "show" then
-            local db = GetDB()
-            db.showAurasGlobal = AuraMode.SHOW
-            print("Show all auras. Specific spellIDs can be overridden to hide auras using /wcdm hide <spellID>.")
-            RefreshPanel()
-        else
-            local db = GetDB()
-            local status
-            if db.showAurasGlobal == AuraMode.SHOW then
-                status = "Show Auras"
-            elseif db.showAurasGlobal == AuraMode.HIDE then
-                status = "Hide Auras"
-            end
-            print("Default (used for spells not specifically hidden or shown): " .. status .. ".")
-            print("Usage: /wcdm default {hide,show}")
-        end
-    elseif msg == "list" then
-        local db = GetDB()
-        local status
-        if db.showAurasGlobal == AuraMode.SHOW then
-            status = "Show Auras"
-        elseif db.showAurasGlobal == AuraMode.HIDE then
-            status = "Hide Auras"
-        end
-        print("Default (used for spells not specifically hidden or shown): " .. status .. ".")
-        for spellID, showing in pairs(db.showAurasSpellIDs) do
-            local spellStatus
-            if showing == AuraMode.SHOW then
-                spellStatus = "Show Auras"
-            elseif showing == AuraMode.HIDE then
-                spellStatus = "Hide Auras"
-            end
-            print(spellID .. ": " .. spellStatus)
-        end
-    else
-        print("/cdm - Open Advanced Cooldown Settings panel")
-        print("/wcdm hide <spellID> - Hide auras for <spellID>")
-        print("/wcdm show <spellID> - Show auras for <spellID>")
-        print("/wcdm clear {<spellID>,all} - Clear override for <spellID> or all spell IDs")
-        print("/wcdm default {hide,show} - Set whether to hide auras for spells not specifically hidden or shown")
-        print("/wcdm list - List all spell IDs currently set to be hidden or shown")
+
+        print("Unknown command: " .. msg)
+        PrintHelp()
     end
 end
