@@ -210,7 +210,88 @@ local function SortedKeys(tbl)
     return keys
 end
 
-local function RefreshPanel()
+local RefreshPanel
+
+local function CreateOverrideRow(parent)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetSize(220, 32)
+
+    row.icon = row:CreateTexture(nil, "ARTWORK")
+    row.icon:SetSize(32, 32)
+    row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+
+    row.dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
+    row.dropdown:SetSize(140, 24)
+    row.dropdown:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
+
+    row.clearButton = CreateFrame("Button", nil, row, "GameMenuButtonTemplate")
+    row.clearButton:SetSize(24, 24)
+    row.clearButton:SetPoint("LEFT", row.dropdown, "RIGHT", 3, 0)
+    row.clearButton:SetText("X")
+
+    row.icon:SetScript("OnEnter", function(self)
+        if not row.spellID then
+            return
+        end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetSpellByID(row.spellID)
+        GameTooltip:Show()
+    end)
+    row.icon:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+
+    row.dropdown:SetupMenu(function(owner, rootDescription)
+        rootDescription:CreateButton("Show Auras", function()
+            if not row.spellID then
+                return
+            end
+
+            local db = GetDB()
+            db.showAurasSpellIDs[row.spellID] = AuraMode.SHOW
+            RefreshPanel()
+        end)
+        rootDescription:CreateButton("Hide Auras", function()
+            if not row.spellID then
+                return
+            end
+
+            local db = GetDB()
+            db.showAurasSpellIDs[row.spellID] = AuraMode.HIDE
+            RefreshPanel()
+        end)
+    end)
+
+    row.clearButton:SetScript("OnClick", function()
+        if not row.spellID then
+            return
+        end
+
+        local db = GetDB()
+        db.showAurasSpellIDs[row.spellID] = nil
+        RefreshPanel()
+    end)
+
+    return row
+end
+
+local function LayoutOverrideRow(row, parent, index, rowSpacing)
+    row:SetParent(parent)
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(index - 1) * rowSpacing)
+end
+
+local function UpdateOverrideRow(row, spellID, auraMode)
+    row.spellID = spellID
+    row.icon:SetTexture(C_Spell.GetSpellTexture(spellID))
+
+    if auraMode == AuraMode.SHOW then
+        row.dropdown:OverrideText("Show Auras")
+    elseif auraMode == AuraMode.HIDE then
+        row.dropdown:OverrideText("Hide Auras")
+    end
+end
+
+RefreshPanel = function()
     if not panelFrame or not panelFrame:IsShown() then
         return
     end
@@ -230,83 +311,15 @@ local function RefreshPanel()
 
     for index, spellID in ipairs(keys) do
         local row = panelFrame.overrideRows[index]
-
         if not row then
-            row = CreateFrame("Frame", nil, panelFrame.overrideContent)
-            row:SetSize(220, 32)
-            row:SetPoint("TOPLEFT", panelFrame.overrideContent, "TOPLEFT", 0, -(index - 1) * rowSpacing)
-
-            row.icon = row:CreateTexture(nil, "ARTWORK")
-            row.icon:SetSize(32, 32)
-            row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
-
-            row.dropdown = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
-            row.dropdown:SetSize(140, 24)
-            row.dropdown:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-
-            row.clearButton = CreateFrame("Button", nil, row, "GameMenuButtonTemplate")
-            row.clearButton:SetSize(24, 24)
-            row.clearButton:SetPoint("LEFT", row.dropdown, "RIGHT", 3, 0)
-            row.clearButton:SetText("X")
-
-            row.icon:SetScript("OnEnter", function(self)
-                if not row.spellID then
-                    return
-                end
-                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetSpellByID(row.spellID)
-                GameTooltip:Show()
-            end)
-            row.icon:SetScript("OnLeave", function()
-                GameTooltip:Hide()
-            end)
-
-            row.dropdown:SetupMenu(function(owner, rootDescription)
-                rootDescription:CreateButton("Show Auras", function()
-                    if not row.spellID then
-                        return
-                    end
-
-                    local db = GetDB()
-                    db.showAurasSpellIDs[row.spellID] = AuraMode.SHOW
-                    RefreshPanel()
-                end)
-                rootDescription:CreateButton("Hide Auras", function()
-                    if not row.spellID then
-                        return
-                    end
-
-                    local db = GetDB()
-                    db.showAurasSpellIDs[row.spellID] = AuraMode.HIDE
-                    RefreshPanel()
-                end)
-            end)
-
-            row.clearButton:SetScript("OnClick", function(button, ...)
-                if not row.spellID then
-                    return
-                end
-
-                local db = GetDB()
-                db.showAurasSpellIDs[row.spellID] = nil
-                RefreshPanel()
-            end)
-
+            row = CreateOverrideRow(panelFrame.overrideContent)
             panelFrame.overrideRows[index] = row
-        else
-            row:SetParent(panelFrame.overrideContent)
-            row:SetPoint("TOPLEFT", panelFrame.overrideContent, "TOPLEFT", 0, -(index - 1) * rowSpacing)
         end
 
+        LayoutOverrideRow(row, panelFrame.overrideContent, index, rowSpacing)
         local auraMode = db.showAurasSpellIDs[spellID]
 
-        row.spellID = spellID
-        row.icon:SetTexture(C_Spell.GetSpellTexture(spellID))
-        if auraMode == AuraMode.SHOW then
-            row.dropdown:OverrideText("Show Auras")
-        elseif auraMode == AuraMode.HIDE then
-            row.dropdown:OverrideText("Hide Auras")
-        end
+        UpdateOverrideRow(row, spellID, auraMode)
         row:Show()
     end
 
