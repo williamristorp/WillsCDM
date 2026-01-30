@@ -480,19 +480,21 @@ local function PrintIsShowAura(spellID)
 end
 
 local function PrintHelp()
-    print("/cdm - Open Advanced Cooldown Settings panel")
+    print("/wcdm - Open Advanced Cooldown Settings panel")
+    print("  Alias: /cdm (may not work if another addon uses it)")
     print("/wcdm settings - Open Advanced Cooldown Settings panel")
     print("/wcdm force {<spellID>,all} - Disable aura (force cooldown) for <spellID> or all spell IDs")
     print("/wcdm clear {<spellID>,all} - Enable aura for <spellID> or all spell IDs")
     print("/wcdm <spellID> - Show settings for spell ID")
-    print("/wcdm help - Show this help message")
+    print("/wcdm help - Print this help message")
     print()
     print("Note: Right click spells in the Advanced Cooldown Settings panel to change its settings.")
 end
 
 SLASH_WCDM1 = "/wcdm"
 SlashCmdList["WCDM"] = function(msg, editBox)
-    if msg == "settings" then
+    if msg == "" or msg == "settings" then
+        print("Use /wcdm help for command usage.")
         ShowUIPanel(CooldownViewerSettings)
     elseif starts_with(msg, "force") then
         local arg = msg:match("force%s+(%S+)")
@@ -522,10 +524,11 @@ SlashCmdList["WCDM"] = function(msg, editBox)
         end
 
         print("Usage: /wcdm clear {<spellID>,all}")
-    elseif msg == "help" then
+    elseif msg == "help" or msg == "--help" then
         PrintHelp()
     else
         local arg = msg:match("%S+")
+
         local spellID = tonumber(arg)
         if spellID then
             PrintIsShowAura(spellID)
