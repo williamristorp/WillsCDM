@@ -122,13 +122,12 @@ local function ApplyCooldownSettings(cdmFrame)
         return
     end
 
-    local spellID = cooldownInfo.spellID
+    local spellID = cooldownInfo.overrideSpellID or cooldownInfo.spellID
     if not spellID then
         return
     end
 
     local showAura = GetShowAura(spellID)
-
     if showAura and cdmFrame.wasSetFromAura then
         cdmFrame.Cooldown:SetSwipeColor(unpack(GetAuraSwipeColor(spellID)))
     else
@@ -162,7 +161,7 @@ local function ApplyIconSettings(cdmFrame)
         return
     end
 
-    local spellID = cooldownInfo.spellID
+    local spellID = cooldownInfo.overrideSpellID or cooldownInfo.spellID
     if not spellID then
         return
     end
