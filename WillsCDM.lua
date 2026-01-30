@@ -27,6 +27,13 @@ local function InitializeDB()
     WillsDB = WillsDB or {}
     local db = WillsDB
 
+    -- Remove unknown keys. Might contain fields that we've removed or renamed in later versions.
+    for k, v in pairs(db) do
+        if dbDefaults[k] == nil then
+            db[k] = nil
+        end
+    end
+
     ApplyDefaultsToTable(db, dbDefaults)
 end
 
@@ -34,44 +41,92 @@ local function GetDB()
     return WillsDB
 end
 
-local function CreateSpellSettings(spellID)
+local function GetSpellSettings(spellID)
     local db = GetDB()
-    local defaultCooldownSwipeColor = db.defaultCooldownSwipeColor
-    local defaultAuraSwipeColor = db.defaultAuraSwipeColor
-
-    db.spellSettings[spellID] = {
-        showAura = db.defaultShowAuras,
-        cooldownSwipeColor = {unpack(defaultCooldownSwipeColor)},
-        auraSwipeColor = {unpack(defaultAuraSwipeColor)}
-    }
+    return db.spellSettings[spellID]
 end
 
 local function EnsureSpellSettings(spellID)
     local db = GetDB()
-
     if db.spellSettings[spellID] == nil then
-        CreateSpellSettings(spellID)
+        db.spellSettings[spellID] = {}
     end
-
     return db.spellSettings[spellID]
 end
 
+local function CleanupSpellSettings(spellID)
+    local db = GetDB()
+    local settings = db.spellSettings[spellID]
+    if settings == nil then
+        return
+    end
+
+    if settings.showAura == nil and settings.cooldownSwipeColor == nil and settings.auraSwipeColor == nil then
+        db.spellSettings[spellID] = nil
+    end
+end
+
+local function ColorsEqual(a, b)
+    if a == b then
+        return true
+    end
+    if type(a) ~= "table" or type(b) ~= "table" then
+        return false
+    end
+
+    local eps = 0.0001
+    for i = 1, 4 do
+        local av = a[i]
+        local bv = b[i]
+        if av == nil and bv == nil then
+            -- ok
+        else
+            if av == nil then
+                av = (i == 4) and 1 or 0
+            end
+            if bv == nil then
+                bv = (i == 4) and 1 or 0
+            end
+            if math.abs(av - bv) > eps then
+                return false
+            end
+        end
+    end
+    return true
+end
+
 local function GetCooldownSwipeColor(spellID)
-    local settings = EnsureSpellSettings(spellID)
-    return settings.cooldownSwipeColor
+    local db = GetDB()
+    local settings = GetSpellSettings(spellID)
+    return (settings and settings.cooldownSwipeColor) or db.defaultCooldownSwipeColor
 end
 
 local function GetAuraSwipeColor(spellID)
-    local settings = EnsureSpellSettings(spellID)
-    return settings.auraSwipeColor
+    local db = GetDB()
+    local settings = GetSpellSettings(spellID)
+    return (settings and settings.auraSwipeColor) or db.defaultAuraSwipeColor
 end
 
 local function GetShowAura(spellID)
-    local settings = EnsureSpellSettings(spellID)
-    return settings.showAura
+    local db = GetDB()
+    local settings = GetSpellSettings(spellID)
+    if settings and settings.showAura ~= nil then
+        return settings.showAura
+    end
+    return db.defaultShowAuras
 end
 
 local function SetShowAura(spellID, value)
+    local db = GetDB()
+    if value == db.defaultShowAuras then
+        local settings = GetSpellSettings(spellID)
+        if settings ~= nil then
+            settings.showAura = nil
+            CleanupSpellSettings(spellID)
+        end
+        return
+    end
+
     local settings = EnsureSpellSettings(spellID)
     settings.showAura = value
 end
@@ -83,9 +138,48 @@ end
 
 local function SetShowAuraAll(value)
     local db = GetDB()
-    for spellID, _ in pairs(db.spellSettings) do
-        db.spellSettings[spellID].showAura = value
+    db.defaultShowAuras = value
+
+    local keys = {}
+    for spellID in pairs(db.spellSettings) do
+        table.insert(keys, spellID)
     end
+    for _, spellID in ipairs(keys) do
+        db.spellSettings[spellID].showAura = nil
+        CleanupSpellSettings(spellID)
+    end
+end
+
+local function SetCooldownSwipeColor(spellID, colorTable)
+    local db = GetDB()
+    if ColorsEqual(colorTable, db.defaultCooldownSwipeColor) then
+        local settings = GetSpellSettings(spellID)
+        if settings ~= nil then
+            settings.cooldownSwipeColor = nil
+            CleanupSpellSettings(spellID)
+        end
+        return
+    end
+
+    local settings = EnsureSpellSettings(spellID)
+    local r, g, b, a = unpack(colorTable)
+    settings.cooldownSwipeColor = {r, g, b, a}
+end
+
+local function SetAuraSwipeColor(spellID, colorTable)
+    local db = GetDB()
+    if ColorsEqual(colorTable, db.defaultAuraSwipeColor) then
+        local settings = GetSpellSettings(spellID)
+        if settings ~= nil then
+            settings.auraSwipeColor = nil
+            CleanupSpellSettings(spellID)
+        end
+        return
+    end
+
+    local settings = EnsureSpellSettings(spellID)
+    local r, g, b, a = unpack(colorTable)
+    settings.auraSwipeColor = {r, g, b, a}
 end
 
 local function GetCooldownFrames()
@@ -322,13 +416,39 @@ local function BuildColorPickerInfo(colorTable, onChanged)
     return colorInfo
 end
 
-local function AddColorSwatch(rootDescription, label, colorTable, onChanged)
+local function AddColorSwatch(rootDescription, label, getColorTable, setColorTable, onChanged)
+    local function Commit(colorTable)
+        if setColorTable then
+            setColorTable(colorTable)
+        end
+        if onChanged then
+            onChanged()
+        end
+    end
+
     rootDescription:CreateColorSwatch(label, function()
-        ColorPickerFrame:SetupColorPickerAndShow(BuildColorPickerInfo(colorTable, onChanged))
-    end, GetColorSwatchDisplayInfo(colorTable))
+        local current = getColorTable and getColorTable() or {0, 0, 0, 1}
+        local colorCopy = {unpack(current)}
+        ColorPickerFrame:SetupColorPickerAndShow(BuildColorPickerInfo(colorCopy, function()
+            Commit(colorCopy)
+        end))
+    end, GetColorSwatchDisplayInfo(getColorTable and getColorTable() or {0, 0, 0, 1}))
+end
+
+local function CopyColorInto(dst, src)
+    if type(dst) ~= "table" or type(src) ~= "table" then
+        return
+    end
+
+    dst[1] = src[1]
+    dst[2] = src[2]
+    dst[3] = src[3]
+    dst[4] = src[4]
 end
 
 local function Run()
+    InitializeDB()
+
     HookCooldownFrames()
 
     EventRegistry:RegisterCallback("CooldownViewerSettings.OnDataChanged", function()
@@ -341,13 +461,14 @@ local function Run()
 
     Menu.ModifyMenu("MENU_COOLDOWN_SETTINGS_ITEM", function(owner, rootDescription, contextData)
         local spellID = owner:GetBaseSpellID()
-        local settings = EnsureSpellSettings(spellID)
-
         rootDescription:CreateDivider()
         rootDescription:CreateTitle("Will's CDM")
 
-        AddColorSwatch(rootDescription, "Cooldown Swipe Color", settings.cooldownSwipeColor,
-            RefreshCooldownManagerFrames)
+        AddColorSwatch(rootDescription, "Cooldown Swipe Color", function()
+            return GetCooldownSwipeColor(spellID)
+        end, function(color)
+            SetCooldownSwipeColor(spellID, color)
+        end, RefreshCooldownManagerFrames)
 
         rootDescription:CreateCheckbox("Show Aura", function(...)
             return GetShowAura(spellID)
@@ -356,10 +477,15 @@ local function Run()
             RefreshCooldownManagerFrames()
         end)
 
-        AddColorSwatch(rootDescription, "Aura Swipe Color", settings.auraSwipeColor, RefreshCooldownManagerFrames)
+        AddColorSwatch(rootDescription, "Aura Swipe Color", function()
+            return GetAuraSwipeColor(spellID)
+        end, function(color)
+            SetAuraSwipeColor(spellID, color)
+        end, RefreshCooldownManagerFrames)
 
         rootDescription:CreateButton("Reset to Defaults", function()
-            CreateSpellSettings(spellID)
+            local db = GetDB()
+            db.spellSettings[spellID] = nil
             RefreshCooldownManagerFrames()
         end)
     end)
@@ -381,7 +507,14 @@ local function Run()
                 button2 = "No",
                 OnAccept = function()
                     local db = GetDB()
-                    SetShowAuraAll(db.defaultShowAuras)
+                    local keys = {}
+                    for spellID in pairs(db.spellSettings) do
+                        table.insert(keys, spellID)
+                    end
+                    for _, spellID in ipairs(keys) do
+                        db.spellSettings[spellID].showAura = nil
+                        CleanupSpellSettings(spellID)
+                    end
                     RefreshCooldownManagerFrames()
                 end
             }
@@ -391,8 +524,11 @@ local function Run()
         rootDescription:CreateDivider()
 
         local db = GetDB()
-        AddColorSwatch(rootDescription, "Default Cooldown Swipe Color", db.defaultCooldownSwipeColor,
-            RefreshCooldownManagerFrames)
+        AddColorSwatch(rootDescription, "Default Cooldown Swipe Color", function()
+            return db.defaultCooldownSwipeColor
+        end, function(color)
+            CopyColorInto(db.defaultCooldownSwipeColor, color)
+        end, RefreshCooldownManagerFrames)
 
         rootDescription:CreateButton("Reset Default Cooldown Swipe Color", function()
             local db = GetDB()
@@ -407,9 +543,13 @@ local function Run()
                 button2 = "No",
                 OnAccept = function()
                     local db = GetDB()
-                    local r, g, b, a = unpack(db.defaultCooldownSwipeColor)
-                    for spellID, _ in pairs(db.spellSettings) do
-                        db.spellSettings[spellID].cooldownSwipeColor = {r, g, b, a}
+                    local keys = {}
+                    for spellID in pairs(db.spellSettings) do
+                        table.insert(keys, spellID)
+                    end
+                    for _, spellID in ipairs(keys) do
+                        db.spellSettings[spellID].cooldownSwipeColor = nil
+                        CleanupSpellSettings(spellID)
                     end
                     RefreshCooldownManagerFrames()
                 end
@@ -420,8 +560,11 @@ local function Run()
 
         rootDescription:CreateDivider()
 
-        AddColorSwatch(rootDescription, "Default Aura Swipe Color", db.defaultAuraSwipeColor,
-            RefreshCooldownManagerFrames)
+        AddColorSwatch(rootDescription, "Default Aura Swipe Color", function()
+            return db.defaultAuraSwipeColor
+        end, function(color)
+            CopyColorInto(db.defaultAuraSwipeColor, color)
+        end, RefreshCooldownManagerFrames)
 
         rootDescription:CreateButton("Reset Default Aura Swipe Color", function()
             local db = GetDB()
@@ -436,9 +579,13 @@ local function Run()
                 button2 = "No",
                 OnAccept = function()
                     local db = GetDB()
-                    local r, g, b, a = unpack(db.defaultAuraSwipeColor)
-                    for spellID, _ in pairs(db.spellSettings) do
-                        db.spellSettings[spellID].auraSwipeColor = {r, g, b, a}
+                    local keys = {}
+                    for spellID in pairs(db.spellSettings) do
+                        table.insert(keys, spellID)
+                    end
+                    for _, spellID in ipairs(keys) do
+                        db.spellSettings[spellID].auraSwipeColor = nil
+                        CleanupSpellSettings(spellID)
                     end
                     RefreshCooldownManagerFrames()
                 end
@@ -453,7 +600,6 @@ local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:SetScript("OnEvent", function(self, event, eventAddonName)
     if event == "ADDON_LOADED" and eventAddonName == addonName then
-        InitializeDB()
         Run()
 
         self:UnregisterEvent("ADDON_LOADED")
@@ -480,11 +626,12 @@ local function PrintIsShowAura(spellID)
 end
 
 local function PrintHelp()
+    print("/cdm - Open Advanced Cooldown Settings panel (might not work if another addon overrides it)")
     print("/wcdm - Open Advanced Cooldown Settings panel")
-    print("  Alias: /cdm (may not work if another addon uses it)")
     print("/wcdm settings - Open Advanced Cooldown Settings panel")
     print("/wcdm force {<spellID>,all} - Disable aura (force cooldown) for <spellID> or all spell IDs")
     print("/wcdm clear {<spellID>,all} - Enable aura for <spellID> or all spell IDs")
+    print("/wcdm reset {<spellID>,all} - Reset settings for <spellID> or all spell IDs")
     print("/wcdm <spellID> - Show settings for spell ID")
     print("/wcdm help - Print this help message")
     print()
@@ -497,33 +644,63 @@ SlashCmdList["WCDM"] = function(msg, editBox)
         print("Use /wcdm help for command usage.")
         ShowUIPanel(CooldownViewerSettings)
     elseif starts_with(msg, "force") then
-        local arg = msg:match("force%s+(%S+)")
+        local arg = msg:match("force%s+(.+)")
         if arg == "all" then
             SetShowAuraAll(false)
+            RefreshCooldownManagerFrames()
             return
         end
 
-        local spellID = tonumber(msg:match("force%s+(%d+)"))
+        local spellID = tonumber(arg)
         if spellID then
             SetShowAura(spellID, false)
+            RefreshCooldownManagerFrames()
             return
         end
 
         print("Usage: /wcdm force {<spellID>,all}")
     elseif starts_with(msg, "clear") then
-        local arg = msg:match("clear%s+(%S+)")
+        local arg = msg:match("clear%s+(.+)")
         if arg == "all" then
             SetShowAuraAll(true)
+            RefreshCooldownManagerFrames()
             return
         end
 
-        local spellID = tonumber(msg:match("clear%s+(%d+)"))
+        local spellID = tonumber(arg)
         if spellID then
             SetShowAura(spellID, true)
+            RefreshCooldownManagerFrames()
             return
         end
 
         print("Usage: /wcdm clear {<spellID>,all}")
+    elseif starts_with(msg, "reset") then
+        local arg = msg:match("reset%s+(.+)")
+        if arg == "all" then
+            print("Are you sure you want to reset all settings? Use `/wcdm reset all settings` to confirm.")
+            print("Note: This will also reset default settings.")
+            return
+        end
+
+        if arg == "all settings" then
+            WillsDB = nil
+            InitializeDB()
+            RefreshCooldownManagerFrames()
+            print("All settings have been reset to defaults.")
+            return
+        end
+
+        local spellID = tonumber(arg)
+        if spellID then
+            local db = GetDB()
+            db.spellSettings[spellID] = nil
+            RefreshCooldownManagerFrames()
+            print("Settings for spell ID " .. spellID .. " have been reset to defaults.")
+            return
+        end
+
+        print("Usage: /wcdm reset <spellID>")
     elseif msg == "help" or msg == "--help" then
         PrintHelp()
     else
