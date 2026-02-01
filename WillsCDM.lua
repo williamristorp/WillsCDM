@@ -4,6 +4,7 @@ local DEFAULT_COOLDOWN_SWIPE_COLOR = {0, 0, 0, 0.7}
 local DEFAULT_AURA_SWIPE_COLOR = {1, 0.95, 0.57, 0.7}
 
 local dbDefaults = {
+    defaultAlwaysShowCooldownEdge = false,
     defaultCooldownSwipeColor = {unpack(DEFAULT_COOLDOWN_SWIPE_COLOR)},
     defaultAuraSwipeColor = {unpack(DEFAULT_AURA_SWIPE_COLOR)},
     defaultShowAuras = true,
@@ -21,20 +22,6 @@ local function ApplyDefaultsToTable(tbl, defaults)
             tbl[k] = v
         end
     end
-end
-
-local function InitializeDB()
-    WillsDB = WillsDB or {}
-    local db = WillsDB
-
-    -- Remove unknown keys. Might contain fields that we've removed or renamed in later versions.
-    for k, v in pairs(db) do
-        if dbDefaults[k] == nil then
-            db[k] = nil
-        end
-    end
-
-    ApplyDefaultsToTable(db, dbDefaults)
 end
 
 local function GetDB()
@@ -61,8 +48,31 @@ local function CleanupSpellSettings(spellID)
         return
     end
 
-    if settings.showAura == nil and settings.cooldownSwipeColor == nil and settings.auraSwipeColor == nil then
+    if settings.showAura ~= nil then
+        -- Legacy support for old setting name
+        settings.showAuras = settings.showAura
+        settings.showAura = nil
+    end
+
+    if settings.showAuras == nil and settings.cooldownSwipeColor == nil and settings.auraSwipeColor == nil and
+        settings.alwaysShowCooldownEdge == nil then
         db.spellSettings[spellID] = nil
+    end
+end
+
+local function CleanupAllSpellSettings()
+    local db = GetDB()
+    if not db or type(db.spellSettings) ~= "table" then
+        return
+    end
+
+    local keys = {}
+    for spellID in pairs(db.spellSettings) do
+        table.insert(keys, spellID)
+    end
+
+    for _, spellID in ipairs(keys) do
+        CleanupSpellSettings(spellID)
     end
 end
 
@@ -95,6 +105,15 @@ local function ColorsEqual(a, b)
     return true
 end
 
+local function GetAlwaysShowCooldownEdge(spellID)
+    local db = GetDB()
+    local settings = GetSpellSettings(spellID)
+    if settings and settings.alwaysShowCooldownEdge ~= nil then
+        return settings.alwaysShowCooldownEdge
+    end
+    return db.defaultAlwaysShowCooldownEdge
+end
+
 local function GetCooldownSwipeColor(spellID)
     local db = GetDB()
     local settings = GetSpellSettings(spellID)
@@ -107,36 +126,56 @@ local function GetAuraSwipeColor(spellID)
     return (settings and settings.auraSwipeColor) or db.defaultAuraSwipeColor
 end
 
-local function GetShowAura(spellID)
+local function GetShowAuras(spellID)
     local db = GetDB()
     local settings = GetSpellSettings(spellID)
-    if settings and settings.showAura ~= nil then
-        return settings.showAura
+    if settings and settings.showAuras ~= nil then
+        return settings.showAuras
     end
     return db.defaultShowAuras
 end
 
-local function SetShowAura(spellID, value)
+local function SetAlwaysShowCooldownEdge(spellID, value)
     local db = GetDB()
-    if value == db.defaultShowAuras then
+    if value == db.defaultAlwaysShowCooldownEdge then
         local settings = GetSpellSettings(spellID)
         if settings ~= nil then
-            settings.showAura = nil
+            settings.alwaysShowCooldownEdge = nil
             CleanupSpellSettings(spellID)
         end
         return
     end
 
     local settings = EnsureSpellSettings(spellID)
-    settings.showAura = value
+    settings.alwaysShowCooldownEdge = value
 end
 
-local function ToggleShowAura(spellID)
-    local current = GetShowAura(spellID)
-    SetShowAura(spellID, not current)
+local function ToggleAlwaysShowCooldownEdge(spellID)
+    local current = GetAlwaysShowCooldownEdge(spellID)
+    SetAlwaysShowCooldownEdge(spellID, not current)
 end
 
-local function SetShowAuraAll(value)
+local function SetShowAuras(spellID, value)
+    local db = GetDB()
+    if value == db.defaultShowAuras then
+        local settings = GetSpellSettings(spellID)
+        if settings ~= nil then
+            settings.showAuras = nil
+            CleanupSpellSettings(spellID)
+        end
+        return
+    end
+
+    local settings = EnsureSpellSettings(spellID)
+    settings.showAuras = value
+end
+
+local function ToggleShowAuras(spellID)
+    local current = GetShowAuras(spellID)
+    SetShowAuras(spellID, not current)
+end
+
+local function SetShowAurasAll(value)
     local db = GetDB()
     db.defaultShowAuras = value
 
@@ -145,7 +184,7 @@ local function SetShowAuraAll(value)
         table.insert(keys, spellID)
     end
     for _, spellID in ipairs(keys) do
-        db.spellSettings[spellID].showAura = nil
+        db.spellSettings[spellID].showAuras = nil
         CleanupSpellSettings(spellID)
     end
 end
@@ -182,6 +221,21 @@ local function SetAuraSwipeColor(spellID, colorTable)
     settings.auraSwipeColor = {r, g, b, a}
 end
 
+local function InitializeDB()
+    WillsDB = WillsDB or {}
+    local db = WillsDB
+
+    -- Remove unknown keys. Might contain fields that we've removed or renamed in later versions.
+    for k, v in pairs(db) do
+        if dbDefaults[k] == nil then
+            db[k] = nil
+        end
+    end
+
+    CleanupAllSpellSettings()
+    ApplyDefaultsToTable(db, dbDefaults)
+end
+
 local function GetCooldownFrames()
     local frames = {}
 
@@ -210,45 +264,6 @@ local desaturationCurve = C_CurveUtil.CreateCurve()
 desaturationCurve:AddPoint(0, 0)
 desaturationCurve:AddPoint(0.001, 1)
 
-local function ApplyCooldownSettings(cdmFrame)
-    local cooldownInfo = cdmFrame:GetCooldownInfo()
-    if cooldownInfo == nil then
-        return
-    end
-
-    local spellID = cooldownInfo.overrideSpellID or cooldownInfo.spellID
-    if not spellID then
-        return
-    end
-
-    local showAura = GetShowAura(spellID)
-    if showAura and cdmFrame.wasSetFromAura then
-        cdmFrame.Cooldown:SetSwipeColor(unpack(GetAuraSwipeColor(spellID)))
-    else
-        cdmFrame.Cooldown:SetSwipeColor(unpack(GetCooldownSwipeColor(spellID)))
-    end
-
-    cdmFrame.Cooldown:SetDrawEdge(true)
-    if showAura then
-        return
-    end
-
-    local cooldownDuration = C_Spell.GetSpellCooldownDuration(spellID)
-    cdmFrame.Cooldown:SetCooldownFromDurationObject(cooldownDuration)
-    if C_Spell.GetSpellCharges(spellID) then
-        cdmFrame.Cooldown:SetCooldownFromDurationObject(C_Spell.GetSpellChargeDuration(spellID))
-    end
-
-    local cooldown = C_Spell.GetSpellCooldown(spellID)
-    if cooldown and cooldown.isOnGCD then
-        cdmFrame.WillsCDM_Desaturation = 0
-    else
-        cdmFrame.WillsCDM_Desaturation = cooldownDuration:EvaluateRemainingPercent(desaturationCurve)
-    end
-
-    cdmFrame.Cooldown:SetReverse(false)
-end
-
 local function ApplyIconSettings(cdmFrame)
     local cooldownInfo = cdmFrame:GetCooldownInfo()
     if cooldownInfo == nil then
@@ -260,26 +275,74 @@ local function ApplyIconSettings(cdmFrame)
         return
     end
 
-    if GetShowAura(spellID) then
+    if GetShowAuras(spellID) and cdmFrame.wasSetFromAura then
         cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownShowSwipe == true)
+        cdmFrame.Icon:SetDesaturation(0)
         return
     end
 
     if cdmFrame.wasSetFromAura then
         cdmFrame.Icon:SetDesaturation(cdmFrame.WillsCDM_Desaturation)
-    end
 
-    if cdmFrame.wasSetFromAura and cdmFrame:GetAuraDataUnit() ~= "target" then
-        if issecretvalue(cdmFrame.cooldownChargesCount) or issecretvalue(cdmFrame.cooldownChargesShown) then
-            if issecretvalue(cdmFrame.Icon:IsDesaturated()) then
-                cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.CooldownFlash:IsShown())
+        if C_Spell.GetSpellCharges(spellID) then
+            if issecretvalue(cdmFrame.cooldownChargesCount) or issecretvalue(cdmFrame.cooldownChargesMax) then
+                if issecretvalue(cdmFrame.Icon:IsDesaturated()) then
+                    local flashIsShown = cdmFrame.CooldownFlash:IsShown()
+                    cdmFrame.Cooldown:SetDrawSwipe(flashIsShown)
+                    cdmFrame.Cooldown:SetDrawEdge(not flashIsShown or GetAlwaysShowCooldownEdge(spellID))
+                else
+                    cdmFrame.Cooldown:SetDrawSwipe(false)
+                    cdmFrame.Cooldown:SetDrawEdge(true)
+                end
             else
-                cdmFrame.Cooldown:SetDrawSwipe(false)
+                cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownChargesCount == 0)
+                cdmFrame.Cooldown:SetDrawEdge(cdmFrame.cooldownChargesCount < cdmFrame.cooldownChargesMax or
+                                                  GetAlwaysShowCooldownEdge(spellID))
             end
         else
-            cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownChargesCount == 0 and cdmFrame.cooldownChargesShown == true)
+            cdmFrame.Cooldown:SetDrawSwipe(true)
         end
     end
+end
+
+local function ApplyCooldownSettings(cdmFrame)
+    local cooldownInfo = cdmFrame:GetCooldownInfo()
+    if cooldownInfo == nil then
+        return
+    end
+
+    local spellID = cooldownInfo.overrideSpellID or cooldownInfo.spellID
+    if not spellID then
+        return
+    end
+
+    if GetAlwaysShowCooldownEdge(spellID) then
+        cdmFrame.Cooldown:SetDrawEdge(true)
+    end
+
+    if GetShowAuras(spellID) and cdmFrame.wasSetFromAura then
+        cdmFrame.Cooldown:SetSwipeColor(unpack(GetAuraSwipeColor(spellID)))
+        return
+    end
+
+    cdmFrame.Cooldown:SetSwipeColor(unpack(GetCooldownSwipeColor(spellID)))
+
+    local cooldownDuration = C_Spell.GetSpellCooldownDuration(spellID)
+    cdmFrame.Cooldown:SetCooldownFromDurationObject(cooldownDuration)
+    if C_Spell.GetSpellCharges(spellID) then
+        cdmFrame.Cooldown:SetCooldownFromDurationObject(C_Spell.GetSpellChargeDuration(spellID))
+    else
+        cdmFrame.Cooldown:SetDrawSwipe(true)
+    end
+
+    local cooldown = C_Spell.GetSpellCooldown(spellID)
+    if cooldown and cooldown.isOnGCD then
+        cdmFrame.WillsCDM_Desaturation = 0
+    else
+        cdmFrame.WillsCDM_Desaturation = cooldownDuration:EvaluateRemainingPercent(desaturationCurve)
+    end
+
+    ApplyIconSettings(cdmFrame)
 end
 
 local function HookFrame(cdmFrame)
@@ -455,10 +518,6 @@ local function Run()
         HookCooldownFrames()
     end)
 
-    EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow", function()
-        HookCooldownFrames()
-    end)
-
     Menu.ModifyMenu("MENU_COOLDOWN_SETTINGS_ITEM", function(owner, rootDescription, contextData)
         local spellID = owner:GetBaseSpellID()
         rootDescription:CreateDivider()
@@ -470,10 +529,17 @@ local function Run()
             SetCooldownSwipeColor(spellID, color)
         end, RefreshCooldownManagerFrames)
 
-        rootDescription:CreateCheckbox("Show Aura", function(...)
-            return GetShowAura(spellID)
+        rootDescription:CreateCheckbox("Always Show Cooldown Edge", function()
+            return GetAlwaysShowCooldownEdge(spellID)
         end, function()
-            ToggleShowAura(spellID)
+            ToggleAlwaysShowCooldownEdge(spellID)
+            RefreshCooldownManagerFrames()
+        end)
+
+        rootDescription:CreateCheckbox("Show Auras", function()
+            return GetShowAuras(spellID)
+        end, function()
+            ToggleShowAuras(spellID)
             RefreshCooldownManagerFrames()
         end)
 
@@ -493,35 +559,6 @@ local function Run()
     Menu.ModifyMenu("COOLDOWN_VIEWER_SETTINGS_MENU", function(owner, rootDescription, contextData)
         rootDescription:CreateDivider()
         rootDescription:CreateTitle("Will's CDM")
-        rootDescription:CreateCheckbox("Default Show Auras", function()
-            local db = GetDB()
-            return db.defaultShowAuras
-        end, function()
-            local db = GetDB()
-            db.defaultShowAuras = not db.defaultShowAuras
-        end)
-        rootDescription:CreateButton("Apply Default Show Auras", function()
-            StaticPopupDialogs["WILLS_CDM_APPLY_DEFAULT_SHOW_AURAS"] = {
-                text = "Are you sure you want to apply the default show auras setting to all spells?",
-                button1 = "Yes",
-                button2 = "No",
-                OnAccept = function()
-                    local db = GetDB()
-                    local keys = {}
-                    for spellID in pairs(db.spellSettings) do
-                        table.insert(keys, spellID)
-                    end
-                    for _, spellID in ipairs(keys) do
-                        db.spellSettings[spellID].showAura = nil
-                        CleanupSpellSettings(spellID)
-                    end
-                    RefreshCooldownManagerFrames()
-                end
-            }
-
-            StaticPopup_Show("WILLS_CDM_APPLY_DEFAULT_SHOW_AURAS")
-        end)
-        rootDescription:CreateDivider()
 
         local db = GetDB()
         AddColorSwatch(rootDescription, "Default Cooldown Swipe Color", function()
@@ -530,35 +567,23 @@ local function Run()
             CopyColorInto(db.defaultCooldownSwipeColor, color)
         end, RefreshCooldownManagerFrames)
 
-        rootDescription:CreateButton("Reset Default Cooldown Swipe Color", function()
+        rootDescription:CreateCheckbox("Default Always Show Cooldown Edge", function()
             local db = GetDB()
-            db.defaultCooldownSwipeColor = {unpack(DEFAULT_COOLDOWN_SWIPE_COLOR)}
-            RefreshCooldownManagerFrames()
-        end)
-
-        rootDescription:CreateButton("Apply Default Cooldown Swipe Color", function()
-            StaticPopupDialogs["WILLS_CDM_APPLY_DEFAULT_COOLDOWN_SWIPE_COLOR"] = {
-                text = "Are you sure you want to apply the default cooldown swipe color to all spells?",
-                button1 = "Yes",
-                button2 = "No",
-                OnAccept = function()
-                    local db = GetDB()
-                    local keys = {}
-                    for spellID in pairs(db.spellSettings) do
-                        table.insert(keys, spellID)
-                    end
-                    for _, spellID in ipairs(keys) do
-                        db.spellSettings[spellID].cooldownSwipeColor = nil
-                        CleanupSpellSettings(spellID)
-                    end
-                    RefreshCooldownManagerFrames()
-                end
-            }
-
-            StaticPopup_Show("WILLS_CDM_APPLY_DEFAULT_COOLDOWN_SWIPE_COLOR")
+            return db.defaultAlwaysShowCooldownEdge
+        end, function()
+            local db = GetDB()
+            db.defaultAlwaysShowCooldownEdge = not db.defaultAlwaysShowCooldownEdge
         end)
 
         rootDescription:CreateDivider()
+
+        rootDescription:CreateCheckbox("Default Show Auras", function()
+            local db = GetDB()
+            return db.defaultShowAuras
+        end, function()
+            local db = GetDB()
+            db.defaultShowAuras = not db.defaultShowAuras
+        end)
 
         AddColorSwatch(rootDescription, "Default Aura Swipe Color", function()
             return db.defaultAuraSwipeColor
@@ -566,15 +591,11 @@ local function Run()
             CopyColorInto(db.defaultAuraSwipeColor, color)
         end, RefreshCooldownManagerFrames)
 
-        rootDescription:CreateButton("Reset Default Aura Swipe Color", function()
-            local db = GetDB()
-            db.defaultAuraSwipeColor = {unpack(DEFAULT_AURA_SWIPE_COLOR)}
-            RefreshCooldownManagerFrames()
-        end)
+        rootDescription:CreateDivider()
 
-        rootDescription:CreateButton("Apply Default Aura Swipe Color", function()
-            StaticPopupDialogs["WILLS_CDM_APPLY_DEFAULT_AURA_SWIPE_COLOR"] = {
-                text = "Are you sure you want to apply the default aura swipe color to all spells?",
+        rootDescription:CreateButton("Apply Defaults To All Spells", function()
+            StaticPopupDialogs["WILLS_CDM_APPLY_DEFAULTS_TO_ALL_SPELLS"] = {
+                text = "Are you sure you want to apply the defaults to all spells?",
                 button1 = "Yes",
                 button2 = "No",
                 OnAccept = function()
@@ -585,13 +606,33 @@ local function Run()
                     end
                     for _, spellID in ipairs(keys) do
                         db.spellSettings[spellID].auraSwipeColor = nil
+                        db.spellSettings[spellID].cooldownSwipeColor = nil
+                        db.spellSettings[spellID].alwaysShowCooldownEdge = nil
+                        db.spellSettings[spellID].showAuras = nil
                         CleanupSpellSettings(spellID)
                     end
                     RefreshCooldownManagerFrames()
                 end
             }
 
-            StaticPopup_Show("WILLS_CDM_APPLY_DEFAULT_AURA_SWIPE_COLOR")
+            StaticPopup_Show("WILLS_CDM_APPLY_DEFAULTS_TO_ALL_SPELLS")
+        end)
+
+        rootDescription:CreateButton("Reset Defaults", function()
+            StaticPopupDialogs["WILLS_CDM_RESET_DEFAULTS"] = {
+                text = "Are you sure you want to reset the default settings?",
+                button1 = "Yes",
+                button2 = "No",
+                OnAccept = function()
+                    local db = GetDB()
+                    db.defaultAlwaysShowCooldownEdge = false
+                    db.defaultAuraSwipeColor = {unpack(DEFAULT_AURA_SWIPE_COLOR)}
+                    db.defaultCooldownSwipeColor = {unpack(DEFAULT_COOLDOWN_SWIPE_COLOR)}
+                    db.defaultShowAuras = true
+                    RefreshCooldownManagerFrames()
+                end
+            }
+            StaticPopup_Show("WILLS_CDM_RESET_DEFAULTS")
         end)
     end)
 end
@@ -618,7 +659,7 @@ end
 local function PrintIsShowAura(spellID)
     local spellName = C_Spell.GetSpellName(spellID) or "Unknown Spell"
 
-    if GetShowAura(spellID) then
+    if GetShowAuras(spellID) then
         print(spellName .. " (ID: " .. spellID .. ") has aura enabled.")
     else
         print(spellName .. " (ID: " .. spellID .. ") has aura disabled (cooldown forced).")
@@ -646,14 +687,14 @@ SlashCmdList["WCDM"] = function(msg, editBox)
     elseif starts_with(msg, "force") then
         local arg = msg:match("force%s+(.+)")
         if arg == "all" then
-            SetShowAuraAll(false)
+            SetShowAurasAll(false)
             RefreshCooldownManagerFrames()
             return
         end
 
         local spellID = tonumber(arg)
         if spellID then
-            SetShowAura(spellID, false)
+            SetShowAuras(spellID, false)
             RefreshCooldownManagerFrames()
             return
         end
@@ -662,14 +703,14 @@ SlashCmdList["WCDM"] = function(msg, editBox)
     elseif starts_with(msg, "clear") then
         local arg = msg:match("clear%s+(.+)")
         if arg == "all" then
-            SetShowAuraAll(true)
+            SetShowAurasAll(true)
             RefreshCooldownManagerFrames()
             return
         end
 
         local spellID = tonumber(arg)
         if spellID then
-            SetShowAura(spellID, true)
+            SetShowAuras(spellID, true)
             RefreshCooldownManagerFrames()
             return
         end
