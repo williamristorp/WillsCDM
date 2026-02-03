@@ -6,4 +6,5 @@
 ## Category: User Interface
 ## SavedVariables: WillsDB
 
+WillsCDM_DB.lua
 WillsCDM.lua
