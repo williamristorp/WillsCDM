@@ -726,8 +726,7 @@ local function PrintHelp()
     print("/cdm - Open Advanced Cooldown Settings panel (might not work if another addon overrides it)")
     print("/wcdm - Open Advanced Cooldown Settings panel")
     print("/wcdm settings - Open Advanced Cooldown Settings panel")
-    print("/wcdm force {<spellID>,all} - Disable aura (force cooldown) for <spellID> or all spell IDs")
-    print("/wcdm clear {<spellID>,all} - Enable aura for <spellID> or all spell IDs")
+    print("/wcdm aura {<spellID>,all} [toggle|on|off] - Control the GUI 'Show Auras' option")
     print("/wcdm reset {<spellID>,all} - Reset settings for <spellID> or all spell IDs")
     print("/wcdm <spellID> - Show settings for spell ID")
     print("/wcdm help - Print this help message")
@@ -737,79 +736,124 @@ end
 
 SLASH_WCDM1 = "/wcdm"
 SlashCmdList["WCDM"] = function(msg, editBox)
+    local function Trim(str)
+        if str == nil then
+            return ""
+        end
+        return (str:gsub("^%s+", ""):gsub("%s+$", ""))
+    end
+
+    local function SplitFirst(str)
+        str = Trim(str)
+        if str == "" then
+            return "", ""
+        end
+        local a, b = str:match("^(%S+)%s*(.-)$")
+        return a or "", b or ""
+    end
+
+    local function ParseOnOffToggle(str)
+        str = Trim(str):lower()
+        if str == "" or str == "toggle" then
+            return "toggle"
+        end
+        if str == "on" or str == "enable" or str == "enabled" or str == "true" or str == "1" then
+            return true
+        end
+        if str == "off" or str == "disable" or str == "disabled" or str == "false" or str == "0" then
+            return false
+        end
+        return nil
+    end
+
+    msg = Trim(msg)
     if msg == "" or msg == "settings" then
         print("Use /wcdm help for command usage.")
         ShowUIPanel(CooldownViewerSettings)
-    elseif starts_with(msg, "force") then
-        local arg = msg:match("force%s+(.+)")
-        if arg == "all" then
-            SetShowAurasAll(false)
-            RefreshCooldownManagerFrames()
-            return
-        end
-
-        local spellID = tonumber(arg)
-        if spellID then
-            SetShowAuras(spellID, false)
-            RefreshCooldownManagerFrames()
-            return
-        end
-
-        print("Usage: /wcdm force {<spellID>,all}")
-    elseif starts_with(msg, "clear") then
-        local arg = msg:match("clear%s+(.+)")
-        if arg == "all" then
-            SetShowAurasAll(true)
-            RefreshCooldownManagerFrames()
-            return
-        end
-
-        local spellID = tonumber(arg)
-        if spellID then
-            SetShowAuras(spellID, true)
-            RefreshCooldownManagerFrames()
-            return
-        end
-
-        print("Usage: /wcdm clear {<spellID>,all}")
-    elseif starts_with(msg, "reset") then
-        local arg = msg:match("reset%s+(.+)")
-        if arg == "all" then
-            print("Are you sure you want to reset all settings? Use `/wcdm reset all settings` to confirm.")
-            print("Note: This will also reset default settings.")
-            return
-        end
-
-        if arg == "all settings" then
-            WillsDB = nil
-            InitializeDB()
-            RefreshCooldownManagerFrames()
-            print("All settings have been reset to defaults.")
-            return
-        end
-
-        local spellID = tonumber(arg)
-        if spellID then
-            local db = GetDB()
-            db.spellSettings[spellID] = nil
-            RefreshCooldownManagerFrames()
-            print("Settings for spell ID " .. spellID .. " have been reset to defaults.")
-            return
-        end
-
-        print("Usage: /wcdm reset <spellID>")
-    elseif msg == "help" or msg == "--help" then
-        PrintHelp()
     else
-        local arg = msg:match("%S+")
+        local cmd, rest = SplitFirst(msg)
 
-        local spellID = tonumber(arg)
-        if spellID then
+        if cmd == "aura" or cmd == "auras" then
+            local target, modeStr = SplitFirst(rest)
+            if target == "" then
+                print("Usage: /wcdm aura {<spellID>,all} [toggle|on|off]")
+                return
+            end
+
+            local mode = ParseOnOffToggle(modeStr)
+            if mode == nil then
+                print("Usage: /wcdm aura {<spellID>,all} [toggle|on|off]")
+                return
+            end
+
+            if target:lower() == "all" then
+                local db = GetDB()
+                local nextValue
+                if mode == "toggle" then
+                    nextValue = not db.defaultShowAuras
+                else
+                    nextValue = mode
+                end
+                SetShowAurasAll(nextValue)
+                RefreshCooldownManagerFrames()
+                print("Default 'Show Auras' is now " .. (nextValue and "enabled" or "disabled") .. " for all spells.")
+                return
+            end
+
+            local spellID = tonumber(target)
+            if not spellID then
+                print("Usage: /wcdm aura {<spellID>,all} [toggle|on|off]")
+                return
+            end
+
+            if mode == "toggle" then
+                ToggleShowAuras(spellID)
+            else
+                SetShowAuras(spellID, mode)
+            end
+            RefreshCooldownManagerFrames()
             PrintIsShowAura(spellID)
             return
-        end
+        elseif cmd == "reset" then
+            local arg = Trim(rest)
+            if arg == "all" then
+                print("Are you sure you want to reset all settings? Use `/wcdm reset all settings` to confirm.")
+                print("Note: This will also reset default settings.")
+                return
+            end
 
-        print("Unknown command: " .. msg)
-        PrintHelp()
+            if arg == "all settings" then
+                WillsDB = nil
+                InitializeDB()
+                RefreshCooldownManagerFrames()
+                print("All settings have been reset to defaults.")
+                return
+            end
+
+            local spellID = tonumber(arg)
+            if spellID then
+                local db = GetDB()
+                db.spellSettings[spellID] = nil
+                RefreshCooldownManagerFrames()
+                print("Settings for spell ID " .. spellID .. " have been reset to defaults.")
+                return
+            end
+
+            print("Usage: /wcdm reset <spellID>")
+            return
+        elseif cmd == "help" or cmd == "--help" then
+            PrintHelp()
+            return
+        else
+            local spellID = tonumber(cmd)
+            if spellID then
+                PrintIsShowAura(spellID)
+                return
+            end
+
+            print("Unknown command: " .. msg)
+            PrintHelp()
+            return
+        end
     end
 end
