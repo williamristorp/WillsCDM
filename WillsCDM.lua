@@ -260,6 +260,21 @@ local function GetCooldownFrames()
     return frames
 end
 
+local function GetBuffIconFrames()
+    local frames = {}
+
+    local buffViewer = _G["BuffIconCooldownViewer"]
+    if buffViewer then
+        for _, child in ipairs({buffViewer:GetChildren()}) do
+            if child.Cooldown then
+                table.insert(frames, child)
+            end
+        end
+    end
+
+    return frames
+end
+
 local desaturationCurve = C_CurveUtil.CreateCurve()
 desaturationCurve:AddPoint(0, 0)
 desaturationCurve:AddPoint(0.001, 1)
@@ -346,7 +361,7 @@ local function ApplyCooldownSettings(cdmFrame)
     ApplyIconSettings(cdmFrame)
 end
 
-local function HookFrame(cdmFrame)
+local function HookCooldownFrame(cdmFrame)
     if cdmFrame.WillsCDM_Hooked or cdmFrame.Cooldown == nil or cdmFrame.Icon == nil then
         return
     end
@@ -362,13 +377,47 @@ local function HookFrame(cdmFrame)
     cdmFrame.WillsCDM_Hooked = true
 end
 
-local function HookCooldownFrames()
+local function HookBuffIconFrame(cdmFrame)
+    if cdmFrame.WillsCDM_Hooked or cdmFrame.Cooldown == nil or cdmFrame.Icon == nil then
+        return
+    end
+
+    hooksecurefunc(cdmFrame.Cooldown, "SetCooldown", function(self)
+        local cdmFrame = self:GetParent()
+        local cooldownInfo = cdmFrame:GetCooldownInfo()
+        if cooldownInfo == nil then
+            return
+        end
+
+        local spellID = cooldownInfo.overrideSpellID or cooldownInfo.spellID
+        if not spellID then
+            return
+        end
+
+        cdmFrame.Cooldown:SetSwipeColor(unpack(GetAuraSwipeColor(spellID)))
+        cdmFrame.Cooldown:SetDrawEdge(GetAlwaysShowCooldownEdge(spellID))
+    end)
+
+    cdmFrame.WillsCDM_Hooked = true
+end
+
+local function HookFrames()
     local cooldownFrames = GetCooldownFrames()
 
     for _, cdmFrame in ipairs(cooldownFrames) do
         if not cdmFrame.WillsCDM_Hooked then
             if cdmFrame.Cooldown ~= nil then
-                HookFrame(cdmFrame)
+                HookCooldownFrame(cdmFrame)
+            end
+        end
+    end
+
+    local buffIconFrames = GetBuffIconFrames()
+
+    for _, cdmFrame in ipairs(buffIconFrames) do
+        if not cdmFrame.WillsCDM_Hooked then
+            if cdmFrame.Cooldown ~= nil then
+                HookBuffIconFrame(cdmFrame)
             end
         end
     end
@@ -379,7 +428,7 @@ local function RefreshCooldownManagerFrames()
         return
     end
 
-    HookCooldownFrames()
+    HookFrames()
 
     for _, cdmFrame in ipairs(GetCooldownFrames()) do
         if cdmFrame.Cooldown and cdmFrame.Icon then
@@ -513,22 +562,20 @@ end
 local function Run()
     InitializeDB()
 
-    HookCooldownFrames()
+    HookFrames()
 
     EventRegistry:RegisterCallback("CooldownViewerSettings.OnDataChanged", function()
-        HookCooldownFrames()
+        HookFrames()
     end)
 
     Menu.ModifyMenu("MENU_COOLDOWN_SETTINGS_ITEM", function(owner, rootDescription, contextData)
+        local cooldownID = owner.cooldownID
+        local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
+        local category = cdInfo.category
         local spellID = owner:GetBaseSpellID()
+
         rootDescription:CreateDivider()
         rootDescription:CreateTitle("Will's CDM")
-
-        AddColorSwatch(rootDescription, "Cooldown Swipe Color", function()
-            return GetCooldownSwipeColor(spellID)
-        end, function(color)
-            SetCooldownSwipeColor(spellID, color)
-        end, RefreshCooldownManagerFrames)
 
         rootDescription:CreateCheckbox("Always Show Cooldown Edge", function()
             return GetAlwaysShowCooldownEdge(spellID)
@@ -537,12 +584,20 @@ local function Run()
             RefreshCooldownManagerFrames()
         end)
 
-        rootDescription:CreateCheckbox("Show Auras", function()
-            return GetShowAuras(spellID)
-        end, function()
-            ToggleShowAuras(spellID)
-            RefreshCooldownManagerFrames()
-        end)
+        if category == 0 or category == 1 then
+            AddColorSwatch(rootDescription, "Cooldown Swipe Color", function()
+                return GetCooldownSwipeColor(spellID)
+            end, function(color)
+                SetCooldownSwipeColor(spellID, color)
+            end, RefreshCooldownManagerFrames)
+
+            rootDescription:CreateCheckbox("Show Auras", function()
+                return GetShowAuras(spellID)
+            end, function()
+                ToggleShowAuras(spellID)
+                RefreshCooldownManagerFrames()
+            end)
+        end
 
         AddColorSwatch(rootDescription, "Aura Swipe Color", function()
             return GetAuraSwipeColor(spellID)
