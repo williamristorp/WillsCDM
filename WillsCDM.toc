@@ -1,7 +1,7 @@
 ## Interface: 120000, 120001
 ## Title: Will's CDM
 ## Author: williamristorp
-## Version: 1.2.1
+## Version: 1.2.2
 ## LoadOnDemand: 0
 ## Category: User Interface
 ## SavedVariables: WillsDB
