@@ -284,8 +284,9 @@ local function ApplyIconSettings(cdmFrame)
     if cdmFrame.wasSetFromAura then
         cdmFrame.Icon:SetDesaturation(cdmFrame.WillsCDM_Desaturation)
 
-        if C_Spell.GetSpellCharges(spellID) then
-            if issecretvalue(cdmFrame.cooldownChargesCount) or issecretvalue(cdmFrame.cooldownChargesMax) then
+        local spellCharges = C_Spell.GetSpellCharges(spellID)
+        if spellCharges then
+            if issecretvalue(spellCharges.currentCharges) or issecretvalue(spellCharges.maxCharges) then
                 if issecretvalue(cdmFrame.Icon:IsDesaturated()) then
                     local flashIsShown = cdmFrame.CooldownFlash:IsShown()
                     cdmFrame.Cooldown:SetDrawSwipe(flashIsShown)
@@ -295,8 +296,8 @@ local function ApplyIconSettings(cdmFrame)
                     cdmFrame.Cooldown:SetDrawEdge(true)
                 end
             else
-                cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownChargesCount == 0)
-                cdmFrame.Cooldown:SetDrawEdge(cdmFrame.cooldownChargesCount < cdmFrame.cooldownChargesMax or
+                cdmFrame.Cooldown:SetDrawSwipe(spellCharges.currentCharges == 0)
+                cdmFrame.Cooldown:SetDrawEdge(spellCharges.currentCharges < spellCharges.maxCharges or
                                                   GetAlwaysShowCooldownEdge(spellID))
             end
         else
