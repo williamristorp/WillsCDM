@@ -1,3 +1,5 @@
+package-as: WillsCDM
+enable-nolib-creation: no
 externals:
   libs/LibStub:
     url: https://repos.curseforge.com/wow/libstub/trunk
