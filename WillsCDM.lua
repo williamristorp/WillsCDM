@@ -590,6 +590,8 @@ local function PrintHelp()
     print("/wcdm settings - Open Advanced Cooldown Settings panel")
     print("/wcdm aura {<spellID>,all} [toggle|on|off] - Control the GUI 'Show Auras' option")
     print("/wcdm reset {<spellID>,all} - Reset settings for <spellID> or all spell IDs")
+    print("/wcdm items add <count> - Add <count> dummy items to the Items panel")
+    print("/wcdm items clear - Remove dummy items from the Items panel")
     print("/wcdm <spellID> - Show settings for spell ID")
     print("/wcdm help - Print this help message")
     print()
@@ -626,6 +628,86 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             return false
         end
         return nil
+    end
+
+    local function AddDummyItems(count)
+        count = tonumber(count)
+        if not count or count <= 0 then
+            print("Usage: /wcdm items add <count>")
+            return
+        end
+
+        local itemsData = addon.ItemsData
+        local db = DB.GetDB()
+        db.itemSettings = db.itemSettings or {}
+
+        local shownState = itemsData and itemsData.ITEM_STATE_SHOWN or "shown"
+        local shownIDs = (itemsData and itemsData.GetItemIDsByState) and itemsData.GetItemIDsByState(shownState) or {}
+
+        local maxOrder = 0
+        for _, itemID in ipairs(shownIDs) do
+            local settings = DB.GetItemSettings(itemID)
+            if settings and settings.order and settings.order > maxOrder then
+                maxOrder = settings.order
+            end
+        end
+
+        local baseID = 9000000
+        local added = 0
+        local nextID = baseID
+        while added < count do
+            if db.itemSettings[nextID] == nil then
+                DB.SetItemState(nextID, shownState)
+                local settings = DB.EnsureItemSettings(nextID)
+                maxOrder = maxOrder + 1
+                settings.order = maxOrder
+                added = added + 1
+            end
+            nextID = nextID + 1
+        end
+
+        if ItemsPanel and ItemsPanel.RefreshItemsPanel then
+            ItemsPanel.RefreshItemsPanel()
+        end
+        if ItemsPanel and ItemsPanel.RefreshItemViewerFrames then
+            ItemsPanel.RefreshItemViewerFrames()
+        end
+
+        print("Added " .. added .. " dummy items to the Items panel.")
+    end
+
+    local function ClearDummyItems()
+        local itemsData = addon.ItemsData
+        local db = DB.GetDB()
+        if not db.itemSettings then
+            print("No dummy items to remove.")
+            return
+        end
+
+        local baseID = 9000000
+        local maxID = baseID + 100000
+        local removed = 0
+
+        for itemID, _ in pairs(db.itemSettings) do
+            if type(itemID) == "number" and itemID >= baseID and itemID <= maxID then
+                DB.SetItemState(itemID, nil)
+                removed = removed + 1
+            end
+        end
+
+        if itemsData and itemsData.GetItemIDsByState then
+            itemsData.GetItemIDsByState(itemsData.ITEM_STATE_SHOWN)
+            itemsData.GetItemIDsByState(itemsData.ITEM_STATE_HIDDEN)
+        end
+
+        if ItemsPanel and ItemsPanel.RefreshItemsPanel then
+            ItemsPanel.RefreshItemsPanel()
+        end
+        if ItemsPanel and ItemsPanel.RefreshItemViewerFrames then
+            ItemsPanel.RefreshItemViewerFrames()
+        end
+
+        print("Removed " .. removed .. " dummy items from the Items panel.")
     end
 
     msg = Trim(msg)
@@ -675,6 +757,28 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             end
             RefreshCooldownManagerFrames()
             PrintIsShowAura(spellID)
+            return
+        elseif cmd == "items" or cmd == "item" then
+            local sub, subRest = SplitFirst(rest)
+            local count = nil
+            if sub == "add" or sub == "dummy" then
+                count = Trim(subRest)
+            elseif tonumber(sub) then
+                count = sub
+            end
+
+            if sub == "clear" or sub == "remove" then
+                ClearDummyItems()
+                return
+            end
+
+            if not count then
+                print("Usage: /wcdm items add <count>")
+                print("Usage: /wcdm items clear")
+                return
+            end
+
+            AddDummyItems(count)
             return
         elseif cmd == "reset" then
             local arg = Trim(rest)

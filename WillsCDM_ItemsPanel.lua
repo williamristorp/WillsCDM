@@ -733,23 +733,31 @@ RefreshItemsPanel = function(settingsFrame)
             yOffset = yOffset + category:GetHeight() + (previousCategory and 18 or 0)
             previousCategory = category
         end
-        scrollChild:SetHeight(math.max(1, yOffset))
-
         local scrollFrame = itemsPanel.WillsCDM_ScrollFrame
         if scrollFrame then
-            local needsScrollPadding = previousCategory and scrollFrame:GetVerticalScrollRange() > 0
+            local paddingHeight = 18
+            local frameHeight = scrollFrame:GetHeight() or 0
+            local needsScrollPadding = previousCategory and (frameHeight > 0 and yOffset > frameHeight)
             if needsScrollPadding then
                 if not itemsPanel.WillsCDM_ScrollPadding then
                     itemsPanel.WillsCDM_ScrollPadding = CreateFrame("Frame", nil, scrollChild)
-                    itemsPanel.WillsCDM_ScrollPadding:SetHeight(18)
+                    itemsPanel.WillsCDM_ScrollPadding:SetHeight(paddingHeight)
                 end
                 itemsPanel.WillsCDM_ScrollPadding:ClearAllPoints()
                 itemsPanel.WillsCDM_ScrollPadding:SetPoint("TOPLEFT", previousCategory, "BOTTOMLEFT")
                 itemsPanel.WillsCDM_ScrollPadding:SetPoint("TOPRIGHT", previousCategory, "BOTTOMRIGHT")
                 itemsPanel.WillsCDM_ScrollPadding:Show()
+                scrollChild:SetHeight(math.max(1, yOffset + paddingHeight))
             elseif itemsPanel.WillsCDM_ScrollPadding then
                 itemsPanel.WillsCDM_ScrollPadding:Hide()
+                scrollChild:SetHeight(math.max(1, yOffset))
             end
+
+            if scrollFrame.UpdateScrollChildRect then
+                scrollFrame:UpdateScrollChildRect()
+            end
+        else
+            scrollChild:SetHeight(math.max(1, yOffset))
         end
     end
 end
