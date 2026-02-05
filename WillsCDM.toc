@@ -8,3 +8,6 @@
 
 WillsCDM_DB.lua
 WillsCDM.lua
+WillsCDM_ItemsPanel.lua
+libs/LibEditMode/embed.xml
+libs/LibStub/LibStub.lua

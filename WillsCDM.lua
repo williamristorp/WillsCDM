@@ -1,7 +1,9 @@
 local addonName, addon = ...
 addon = addon or {}
+addon.ItemsPanel = addon.ItemsPanel or {}
 
 local DB = addon.DB
+local ItemsPanel = addon.ItemsPanel
 
 local function GetCooldownFrames()
     local frames = {}
@@ -26,6 +28,8 @@ local function GetCooldownFrames()
 
     return frames
 end
+
+addon.GetCooldownFrames = GetCooldownFrames
 
 local function GetBuffIconFrames()
     local frames = {}
@@ -203,6 +207,10 @@ local function RefreshCooldownManagerFrames()
             ApplyIconSettings(cdmFrame)
         end
     end
+
+    if ItemsPanel and ItemsPanel.RefreshItemViewerFrames then
+        ItemsPanel.RefreshItemViewerFrames()
+    end
 end
 
 local function SortedKeys(tbl)
@@ -330,9 +338,81 @@ local function Run()
     DB.InitializeDB()
 
     HookFrames()
+    if ItemsPanel and ItemsPanel.InitializeItemsManager then
+        ItemsPanel.InitializeItemsManager()
+    end
 
     EventRegistry:RegisterCallback("CooldownViewerSettings.OnDataChanged", function()
         HookFrames()
+        if ItemsPanel and ItemsPanel.RefreshItemViewerFrames then
+            ItemsPanel.RefreshItemViewerFrames()
+        end
+    end)
+
+    EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow", function(arg1, table)
+        if ItemsPanel and ItemsPanel.EnsureItemsSettingsTab then
+            ItemsPanel.EnsureItemsSettingsTab(table)
+        end
+        if ItemsPanel and ItemsPanel.RefreshItemsPanel then
+            ItemsPanel.RefreshItemsPanel(table)
+        end
+        -- local trinket1Location = ItemLocation:CreateFromEquipmentSlot(13)
+        -- local trinket2Location = ItemLocation:CreateFromEquipmentSlot(14)
+
+        -- local trinket1ID = C_Item.GetItemID(trinket1Location)
+        -- local trinket2ID = C_Item.GetItemID(trinket2Location)
+
+        -- local trinket1Info = trinket1ID and C_Item.GetItemCooldown(trinket1ID)
+        -- local trinket2Info = trinket2ID and C_Item.GetItemCooldown(trinket2ID)
+
+        -- print("Trinket 1 ID: " .. tostring(trinket1ID) .. ", Cooldown Info: " .. tostring(trinket1Info))
+        -- print("Trinket 2 ID: " .. tostring(trinket2ID) .. ", Cooldown Info: " .. tostring(trinket2Info))
+
+        -- print("Showing Cooldown Viewer Settings")
+        -- for k, v in pairs(table) do
+        --     print("  ", k, v)
+        -- end
+
+        -- local titleText = table:GetTitleText()
+        -- print(titleText:GetObjectType(), titleText:GetText())
+
+        -- local essentialIDs = C_CooldownViewer.GetCooldownViewerCategorySet(0)
+        -- print("Essential Cooldowns:")
+        -- for _, cooldownID in ipairs(essentialIDs) do
+        --     local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
+        --     local spellID = cdInfo.spellID
+        --     local spellName = C_Spell.GetSpellName(spellID) or "Unknown Spell"
+        --     print("  Cooldown ID:", cooldownID, "Spell ID:", spellID, "Name:", spellName)
+        -- end
+
+        -- local utilityIDs = C_CooldownViewer.GetCooldownViewerCategorySet(1)
+        -- print("Utility Cooldowns:")
+        -- for _, cooldownID in ipairs(utilityIDs) do
+        --     local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
+        --     local spellID = cdInfo.spellID
+        --     local spellName = C_Spell.GetSpellName(spellID) or "Unknown Spell"
+        --     print("  Cooldown ID:", cooldownID, "Spell ID:", spellID, "Name:", spellName)
+        -- end
+
+        -- local dataProvider = table:GetDataProvider()
+        -- print("Data Provider: " .. tostring(dataProvider))
+        -- for k, v in pairs(dataProvider) do
+        --     print("  ", k, v)
+        -- end
+
+        -- local catPool = table.categoryPool
+        -- print("Category Pool: " .. tostring(catPool))
+        -- for cat in catPool:EnumerateActive() do
+        --     print("  Category:", cat)
+        --     for k, v in pairs(cat) do
+        --         print("    ", k, v)
+        --     end
+
+        --     local item = cat.itemPool:Acquire()
+        --     item.layoutIndex = 999
+        --     item:SetAsCooldown(trinket1ID, 999)
+        --     item:Show()
+        -- end
     end)
 
     Menu.ModifyMenu("MENU_COOLDOWN_SETTINGS_ITEM", function(owner, rootDescription, contextData)
@@ -458,8 +538,23 @@ local function Run()
             StaticPopup_Show("WILLS_CDM_RESET_DEFAULTS")
         end)
     end)
-end
 
+    local refreshFrame = CreateFrame("Frame")
+    refreshFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    refreshFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    refreshFrame:RegisterEvent("BAG_UPDATE")
+    refreshFrame:SetScript("OnEvent", function(_, event, unit)
+        if event == "PLAYER_SPECIALIZATION_CHANGED" then
+            if unit ~= "player" then
+                return
+            end
+        end
+        if ItemsPanel and ItemsPanel.RefreshItemsPanel then
+            ItemsPanel.RefreshItemsPanel()
+        end
+    end)
+
+end
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:SetScript("OnEvent", function(self, event, eventAddonName)
