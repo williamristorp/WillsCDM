@@ -3,16 +3,13 @@ addon = addon or {}
 
 local DB = addon.DB
 local ItemsPanel = addon.ItemsPanel or {}
+local ItemsData = addon.ItemsData
+local ItemViewer = addon.ItemViewer
 addon.ItemsPanel = ItemsPanel
 
-local ITEM_EQUIP_FIRST = INVSLOT_FIRST_EQUIPPED or 1
-local ITEM_EQUIP_LAST = INVSLOT_LAST_EQUIPPED or 19
-local itemFrames = {}
-local itemViewer = nil
-
-local ITEM_STATE_SHOWN = "shown"
-local ITEM_STATE_HIDDEN = "hidden"
-local ITEM_STATE_REMOVED = "removed"
+local ITEM_STATE_SHOWN = ItemsData.ITEM_STATE_SHOWN
+local ITEM_STATE_HIDDEN = ItemsData.ITEM_STATE_HIDDEN
+local ITEM_STATE_REMOVED = ItemsData.ITEM_STATE_REMOVED
 
 local itemContextMenu = nil
 local reorderSourceItem = nil
@@ -23,593 +20,6 @@ local reorderEatNextGlobalMouseUp = nil
 local reorderMarker = nil
 local reorderCursor = nil
 local reorderCursorFollow = false
-local lastOwnedItems = {}
-local hasOwnedSnapshot = false
-
-local function EnsureItemViewer()
-    if itemViewer then
-        return
-    end
-
-    itemViewer = CreateFrame("Frame", "ItemsCooldownViewer", UIParent)
-    itemViewer:SetSize(72, 36)
-    itemViewer:Hide()
-end
-
-local function GetReferenceIconSize()
-    local size = 32
-    local getCooldownFrames = addon.GetCooldownFrames
-    if getCooldownFrames then
-        for _, cdmFrame in ipairs(getCooldownFrames()) do
-            local width = cdmFrame:GetWidth()
-            if width and width > 0 then
-                size = width
-                break
-            end
-        end
-    end
-    return size
-end
-
-local function GetGrowthDirection(layout)
-    return (layout and layout.growth) or "center"
-end
-
-local function GetHorizontalAnchor(point)
-    if point and point:find("LEFT") then
-        return "LEFT"
-    end
-    if point and point:find("RIGHT") then
-        return "RIGHT"
-    end
-    return "CENTER"
-end
-
-local function GetGrowthOffset(point, growth, totalWidth)
-    if not totalWidth or totalWidth <= 0 then
-        return 0
-    end
-
-    if growth == "left" then
-        local anchor = GetHorizontalAnchor(point)
-        if anchor == "LEFT" then
-            return 0
-        elseif anchor == "CENTER" then
-            return -totalWidth / 2
-        else
-            return -totalWidth
-        end
-    elseif growth == "right" then
-        local anchor = GetHorizontalAnchor(point)
-        if anchor == "RIGHT" then
-            return 0
-        elseif anchor == "CENTER" then
-            return totalWidth / 2
-        else
-            return totalWidth
-        end
-    end
-
-    return 0
-end
-
-local function SetGrowthDirection(layoutName, growth)
-    EnsureItemViewer()
-    local layout = DB.GetItemViewerLayout(layoutName)
-    local totalWidth = itemViewer:GetWidth() or 0
-    local oldGrowth = GetGrowthDirection(layout)
-    local oldOffset = GetGrowthOffset(layout.point, oldGrowth, totalWidth)
-    local newOffset = GetGrowthOffset(layout.point, growth, totalWidth)
-    layout.x = (layout.x or 0) + (oldOffset - newOffset)
-    layout.growth = growth
-end
-
-local function GetItemNameByID(itemID)
-    if C_Item and C_Item.GetItemNameByID then
-        return C_Item.GetItemNameByID(itemID)
-    end
-    local name = GetItemInfo(itemID)
-    return name
-end
-
-local function ItemSortKey(itemID)
-    local name = GetItemNameByID(itemID)
-    if not name or name == "" then
-        return tostring(itemID)
-    end
-    return name:lower()
-end
-
-local function SortItemIDs(items)
-    table.sort(items, function(a, b)
-        local aOrder = DB.GetItemSettings(a) and DB.GetItemSettings(a).order or nil
-        local bOrder = DB.GetItemSettings(b) and DB.GetItemSettings(b).order or nil
-        if aOrder ~= nil and bOrder ~= nil and aOrder ~= bOrder then
-            return aOrder < bOrder
-        elseif aOrder ~= nil and bOrder == nil then
-            return true
-        elseif aOrder == nil and bOrder ~= nil then
-            return false
-        end
-        local aName = ItemSortKey(a)
-        local bName = ItemSortKey(b)
-        if aName ~= bName then
-            return aName < bName
-        end
-        return a < b
-    end)
-end
-
-local function NormalizeItemSettingsKeys()
-    local db = DB.GetDB()
-    if not db or type(db.itemSettings) ~= "table" then
-        return
-    end
-
-    for key, settings in pairs(db.itemSettings) do
-        if type(key) == "string" then
-            local numKey = tonumber(key)
-            if numKey then
-                if db.itemSettings[numKey] == nil then
-                    db.itemSettings[numKey] = settings
-                end
-                db.itemSettings[key] = nil
-            end
-        end
-    end
-end
-
-local function GetItemOrder(itemID)
-    local settings = DB.GetItemSettings(itemID)
-    return settings and settings.order or nil
-end
-
-local function SetItemOrder(itemID, order)
-    local settings = DB.EnsureItemSettings(itemID)
-    settings.order = order
-end
-
-local function EnsureOrderForIDs(ids)
-    local maxOrder = 0
-    for _, itemID in ipairs(ids) do
-        local order = GetItemOrder(itemID)
-        if order and order > maxOrder then
-            maxOrder = order
-        end
-    end
-
-    for _, itemID in ipairs(ids) do
-        if GetItemOrder(itemID) == nil then
-            maxOrder = maxOrder + 1
-            SetItemOrder(itemID, maxOrder)
-        end
-    end
-end
-
-local function ReassignOrders(ids)
-    for index, itemID in ipairs(ids) do
-        SetItemOrder(itemID, index)
-    end
-end
-
-local GetItemIDsByState
-
-local function InsertItemAt(state, itemID, targetItemID, insertBefore)
-    itemID = tonumber(itemID) or itemID
-    targetItemID = tonumber(targetItemID) or targetItemID
-    local ids = GetItemIDsByState(state)
-    local existingIndex = nil
-    for index, id in ipairs(ids) do
-        if id == itemID then
-            existingIndex = index
-            break
-        end
-    end
-
-    if existingIndex then
-        table.remove(ids, existingIndex)
-    end
-
-    local insertIndex = #ids + 1
-    if targetItemID then
-        for index, id in ipairs(ids) do
-            if id == targetItemID then
-                insertIndex = insertBefore and index or (index + 1)
-                break
-            end
-        end
-    end
-
-    table.insert(ids, insertIndex, itemID)
-    ReassignOrders(ids)
-end
-
-local function IsTrackableItem(itemID)
-    if not itemID then
-        return false
-    end
-    local name, spellID = C_Item.GetItemSpell(itemID)
-    if spellID or name then
-        return true
-    end
-    return false
-end
-
-local function ScanOwnedItems()
-    local owned = {}
-
-    if C_Container and NUM_BAG_SLOTS then
-        for bag = 0, NUM_BAG_SLOTS do
-            local slots = C_Container.GetContainerNumSlots(bag)
-            for slot = 1, slots do
-                local itemID = C_Container.GetContainerItemID(bag, slot)
-                if IsTrackableItem(itemID) and not (C_Item.IsEquippableItem and C_Item.IsEquippableItem(itemID)) then
-                    owned[itemID] = true
-                end
-            end
-        end
-    end
-
-    for slot = ITEM_EQUIP_FIRST, ITEM_EQUIP_LAST do
-        local location = ItemLocation:CreateFromEquipmentSlot(slot)
-        if location and C_Item.DoesItemExist(location) then
-            local itemID = C_Item.GetItemID(location)
-            if IsTrackableItem(itemID) then
-                owned[itemID] = true
-            end
-        end
-    end
-
-    return owned
-end
-
-local function EnsureTrackedItems(owned)
-    for itemID in pairs(owned) do
-        local state = DB.GetItemState(itemID)
-        if state == nil then
-            DB.SetItemState(itemID, ITEM_STATE_HIDDEN)
-        elseif state == ITEM_STATE_REMOVED then
-            if hasOwnedSnapshot and not lastOwnedItems[itemID] then
-                DB.SetItemState(itemID, ITEM_STATE_HIDDEN)
-            end
-        end
-    end
-    lastOwnedItems = owned
-    hasOwnedSnapshot = true
-end
-
-GetItemIDsByState = function(state)
-    NormalizeItemSettingsKeys()
-    local ids = {}
-    local db = DB.GetDB()
-    for itemID, settings in pairs(db.itemSettings or {}) do
-        if settings.state == state then
-            table.insert(ids, itemID)
-        end
-    end
-    EnsureOrderForIDs(ids)
-    SortItemIDs(ids)
-    return ids
-end
-
-local function GetVisibleItemIDs(owned)
-    NormalizeItemSettingsKeys()
-    local ids = {}
-    local db = DB.GetDB()
-    for itemID, settings in pairs(db.itemSettings or {}) do
-        if settings.state == ITEM_STATE_SHOWN and owned[itemID] then
-            table.insert(ids, itemID)
-        end
-    end
-    EnsureOrderForIDs(ids)
-    SortItemIDs(ids)
-    return ids
-end
-
-local function CreateViewerItemFrame(parent)
-    local templateName = nil
-    local essential = _G["EssentialCooldownViewer"]
-    if essential and type(essential.itemTemplate) == "string" then
-        templateName = essential.itemTemplate
-    end
-
-    local frame = templateName and CreateFrame("Frame", nil, parent, templateName) or CreateFrame("Frame", nil, parent)
-    if not frame.Icon then
-        frame.Icon = frame:CreateTexture(nil, "ARTWORK")
-        frame.Icon:SetAllPoints()
-        frame.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    end
-    if not frame.Cooldown then
-        frame.Cooldown = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
-        frame.Cooldown:SetAllPoints()
-    end
-    if frame.OutOfRange then
-        frame.OutOfRange:Hide()
-    end
-    if frame.cooldownStartTime == nil then
-        frame.cooldownStartTime = 0
-    end
-    if frame.cooldownDuration == nil then
-        frame.cooldownDuration = 0
-    end
-    return frame
-end
-
-local function EnsureItemViewerFrames(count)
-    EnsureItemViewer()
-
-    for i = 1, count do
-        if not itemFrames[i] then
-            itemFrames[i] = CreateViewerItemFrame(itemViewer)
-        end
-        itemFrames[i]:Show()
-    end
-
-    for i = count + 1, #itemFrames do
-        itemFrames[i]:Hide()
-    end
-end
-
-local ApplyItemViewerLayout
-
-local function UpdateItemsLayout(count)
-    if not itemViewer then
-        return
-    end
-
-    if count == 0 then
-        itemViewer:SetSize(1, 1)
-        return
-    end
-
-    local baseSize = GetReferenceIconSize()
-    local layoutName = itemViewer.WillsCDM_LayoutName or "Default"
-    local layout = DB.GetItemViewerLayout(layoutName)
-    local spacing = layout.padding or 6
-    local scale = layout.scale or 1
-    local visualSize = baseSize * scale
-    local adjustedSpacing = spacing - (4 * scale)
-    local totalWidth = (visualSize * count) + (adjustedSpacing * (count - 1))
-    itemViewer:SetSize(totalWidth, visualSize)
-    if ApplyItemViewerLayout and not itemViewer.WillsCDM_IsMoving then
-        ApplyItemViewerLayout(layoutName)
-    end
-
-    for i = 1, count do
-        local frame = itemFrames[i]
-        frame:SetSize(baseSize, baseSize)
-        frame:SetScale(scale)
-        local xOffset = (i - 1) * (visualSize + adjustedSpacing) * (1 / scale)
-        frame:SetPoint("LEFT", itemViewer, "LEFT", xOffset, 0)
-    end
-end
-
-local function UpdateItemFrame(frame, itemID)
-    if not itemID then
-        frame:Hide()
-        return
-    end
-
-    frame.itemID = itemID
-    if frame.Icon then
-        frame.Icon:SetTexture(C_Item.GetItemIconByID(itemID))
-    end
-
-    if frame.Cooldown then
-        local startTime, duration, enable = C_Item.GetItemCooldown(itemID)
-        if enable == 0 or not duration or duration == 0 then
-            CooldownFrame_Clear(frame.Cooldown)
-            frame.Cooldown:SetDrawSwipe(false)
-            if frame.Icon then
-                frame.Icon:SetDesaturation(0)
-            end
-            frame.cooldownStartTime = 0
-            frame.cooldownDuration = 0
-        else
-            frame.Cooldown:SetCooldown(startTime, duration)
-            frame.Cooldown:SetDrawSwipe(true)
-            if frame.Icon then
-                frame.Icon:SetDesaturation(1)
-            end
-            frame.cooldownStartTime = startTime or 0
-            frame.cooldownDuration = duration or 0
-        end
-    end
-
-    frame:Show()
-end
-
-local function ShouldShowItemViewer()
-    if not itemViewer then
-        return false
-    end
-    if not DB.GetItemViewerEnabled() then
-        return false
-    end
-    if itemViewer.WillsCDM_ForceShow then
-        return true
-    end
-    return itemViewer.WillsCDM_HasItems == true
-end
-
-ApplyItemViewerLayout = function(layoutName)
-    EnsureItemViewer()
-    local layout = DB.GetItemViewerLayout(layoutName)
-    local growth = GetGrowthDirection(layout)
-    local totalWidth = itemViewer:GetWidth() or 0
-    local xOffset = GetGrowthOffset(layout.point, growth, totalWidth)
-    itemViewer:ClearAllPoints()
-    itemViewer:SetPoint(layout.point, UIParent, layout.point, (layout.x or 0) + xOffset, layout.y or 0)
-    itemViewer.WillsCDM_LayoutName = layoutName
-end
-
-local function ResetItemViewerLayout()
-    local layoutName = (itemViewer and itemViewer.WillsCDM_LayoutName) or "Default"
-    DB.ResetItemViewerLayout(layoutName)
-    ApplyItemViewerLayout(layoutName)
-end
-
-local function RefreshItemViewerFrames()
-    EnsureItemViewer()
-
-    local owned = ScanOwnedItems()
-    EnsureTrackedItems(owned)
-    local visibleIDs = GetVisibleItemIDs(owned)
-    local count = #visibleIDs
-    if itemViewer and itemViewer.WillsCDM_ForceShow and count == 0 then
-        count = 1
-    end
-
-    EnsureItemViewerFrames(count)
-
-    local db = DB.GetDB()
-    for i, itemID in ipairs(visibleIDs) do
-        local frame = itemFrames[i]
-        if frame.Cooldown then
-            frame.Cooldown:SetSwipeColor(unpack(db.defaultCooldownSwipeColor))
-            frame.Cooldown:SetDrawEdge(db.defaultAlwaysShowCooldownEdge == true)
-        end
-        UpdateItemFrame(frame, itemID)
-    end
-
-    if count > #visibleIDs then
-        for i = #visibleIDs + 1, count do
-            UpdateItemFrame(itemFrames[i], nil)
-        end
-    end
-
-    if not InCombatLockdown() then
-        UpdateItemsLayout(count)
-    end
-
-    itemViewer.WillsCDM_HasItems = #visibleIDs > 0
-    itemViewer.WillsCDM_VisibleCount = count
-    itemViewer:SetShown(ShouldShowItemViewer())
-end
-
-local function InitializeItemsEditMode()
-    local LEM = LibStub and LibStub("LibEditMode", true)
-
-    EnsureItemViewer()
-
-    local function OnPositionChanged(frame, layoutName, point, x, y)
-        local layout = DB.GetItemViewerLayout(layoutName)
-        local totalWidth = itemViewer:GetWidth() or 0
-        local growth = GetGrowthDirection(layout)
-        local offset = GetGrowthOffset(point, growth, totalWidth)
-        layout.point = point
-        layout.x = (x or 0) - offset
-        layout.y = y
-        ApplyItemViewerLayout(layoutName)
-        itemViewer.WillsCDM_IsMoving = false
-    end
-
-    if LEM then
-        LEM:AddFrame(itemViewer, OnPositionChanged, DB.GetItemViewerLayout("Default"), "Item Cooldowns")
-        local selection = LEM.frameSelections and LEM.frameSelections[itemViewer] or nil
-        if selection then
-            selection:HookScript("OnDragStart", function()
-                itemViewer.WillsCDM_IsMoving = true
-            end)
-            selection:HookScript("OnDragStop", function()
-                itemViewer.WillsCDM_IsMoving = false
-            end)
-        end
-        LEM:AddFrameSettings(itemViewer, {{
-            name = "Icon Size",
-            kind = LEM.SettingType.Slider,
-            default = 1,
-            minValue = 0.5,
-            maxValue = 2.0,
-            valueStep = 0.1,
-            get = function(layoutName)
-                local layout = DB.GetItemViewerLayout(layoutName)
-                return layout.scale or 1
-            end,
-            set = function(layoutName, value)
-                local layout = DB.GetItemViewerLayout(layoutName)
-                layout.scale = value
-                UpdateItemsLayout(itemViewer and itemViewer.WillsCDM_VisibleCount or #itemFrames)
-            end,
-            formatter = function(value)
-                return FormatPercentage(value, true)
-            end
-        }, {
-            name = "Icon Padding",
-            kind = LEM.SettingType.Slider,
-            default = 6,
-            minValue = 0,
-            maxValue = 14,
-            valueStep = 1,
-            get = function(layoutName)
-                local layout = DB.GetItemViewerLayout(layoutName)
-                return layout.padding or 6
-            end,
-            set = function(layoutName, value)
-                local layout = DB.GetItemViewerLayout(layoutName)
-                layout.padding = value
-                UpdateItemsLayout(itemViewer and itemViewer.WillsCDM_VisibleCount or #itemFrames)
-            end
-        }, {
-            name = "Growth Direction",
-            kind = LEM.SettingType.Dropdown,
-            default = "center",
-            values = {{
-                text = "Left",
-                value = "left"
-            }, {
-                text = "Center",
-                value = "center"
-            }, {
-                text = "Right",
-                value = "right"
-            }},
-            get = function(layoutName)
-                local layout = DB.GetItemViewerLayout(layoutName)
-                return GetGrowthDirection(layout)
-            end,
-            set = function(layoutName, value)
-                SetGrowthDirection(layoutName, value)
-                UpdateItemsLayout(itemViewer and itemViewer.WillsCDM_VisibleCount or #itemFrames)
-            end
-        }})
-
-        LEM:RegisterCallback("layout", function(layoutName)
-            ApplyItemViewerLayout(layoutName)
-            RefreshItemViewerFrames()
-        end)
-
-        LEM:RegisterCallback("enter", function()
-            if itemViewer then
-                itemViewer.WillsCDM_ForceShow = true
-            end
-            RefreshItemViewerFrames()
-        end)
-
-        LEM:RegisterCallback("exit", function()
-            if itemViewer then
-                itemViewer.WillsCDM_ForceShow = false
-            end
-            RefreshItemViewerFrames()
-        end)
-    end
-end
-
-local function InitializeItemsManager()
-    InitializeItemsEditMode()
-    ApplyItemViewerLayout("Default")
-    RefreshItemViewerFrames()
-
-    local f = CreateFrame("Frame")
-    f:RegisterEvent("PLAYER_ENTERING_WORLD")
-    f:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-    f:RegisterEvent("BAG_UPDATE")
-    f:RegisterEvent("BAG_UPDATE_COOLDOWN")
-    f:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-    f:SetScript("OnEvent", function()
-        RefreshItemViewerFrames()
-    end)
-end
 
 local function IsTabButton(child)
     if not child then
@@ -637,8 +47,6 @@ local function HideItemsPanel(settingsFrame)
         settingsFrame.WillsCDM_HiddenChildren = nil
     end
 end
-
-local RefreshItemsPanel
 
 local function EnsureItemContextMenu()
     if not itemContextMenu then
@@ -812,18 +220,18 @@ local function EndOrderChange()
             if sourceItem.categoryState ~= targetState then
                 DB.SetItemState(sourceItem.itemID, targetState)
             end
-            InsertItemAt(targetState, sourceItem.itemID, nil, false)
+            ItemsData.InsertItemAt(targetState, sourceItem.itemID, nil, false)
         else
             if sourceItem.categoryState ~= targetState then
                 DB.SetItemState(sourceItem.itemID, targetState)
             end
-            InsertItemAt(targetState, sourceItem.itemID, targetItem.itemID, reorderOffset == 0)
+            ItemsData.InsertItemAt(targetState, sourceItem.itemID, targetItem.itemID, reorderOffset == 0)
         end
     end
 
     CancelOrderChange()
     RefreshItemsPanel()
-    RefreshItemViewerFrames()
+    ItemViewer.RefreshItemViewerFrames()
 end
 
 local function BeginOrderChange(itemButton, eatNextGlobalMouseUp)
@@ -879,13 +287,13 @@ local function ShowItemContextMenu(button)
         return
     end
 
-    local itemName = GetItemNameByID(itemID) or ("Item " .. itemID)
+    local itemName = ItemsData.GetItemNameByID(itemID) or ("Item " .. itemID)
     local menuFrame = EnsureItemContextMenu()
 
     local function SetState(state)
         DB.SetItemState(itemID, state)
         RefreshItemsPanel()
-        RefreshItemViewerFrames()
+        ItemViewer.RefreshItemViewerFrames()
     end
 
     local menu = {{
@@ -1278,8 +686,8 @@ local function CreateItemCategory(parent, title, state)
 end
 
 RefreshItemsPanel = function(settingsFrame)
-    local owned = ScanOwnedItems()
-    EnsureTrackedItems(owned)
+    local owned = ItemsData.ScanOwnedItems()
+    ItemsData.EnsureTrackedItems(owned)
 
     local frame = settingsFrame or _G["CooldownViewerSettings"]
     if not frame then
@@ -1300,8 +708,8 @@ RefreshItemsPanel = function(settingsFrame)
         enable:SetChecked(DB.GetItemViewerEnabled())
     end
 
-    local shownIDs = GetItemIDsByState(ITEM_STATE_SHOWN)
-    local hiddenIDs = GetItemIDsByState(ITEM_STATE_HIDDEN)
+    local shownIDs = ItemsData.GetItemIDsByState(ITEM_STATE_SHOWN)
+    local hiddenIDs = ItemsData.GetItemIDsByState(ITEM_STATE_HIDDEN)
 
     local categories = itemsPanel.WillsCDM_Categories
     if not categories then
@@ -1394,6 +802,7 @@ local function EnsureItemsSettingsTab(settingsFrame)
     scrollChild:SetSize(300, 1)
     scrollChild:SetPoint("TOPLEFT", 0, 0)
     scrollChild:SetPoint("TOPRIGHT", 0, 0)
+    scrollFrame:SetScrollChild(scrollChild)
     scrollFrame.ScrollBar:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", 6, 0)
     scrollFrame.ScrollBar:SetPoint("BOTTOMLEFT", scrollFrame, "BOTTOMRIGHT", 6, 0)
 
@@ -1457,8 +866,8 @@ local function EnsureItemsSettingsTab(settingsFrame)
     itemsTab:Show()
 end
 
-ItemsPanel.RefreshItemViewerFrames = RefreshItemViewerFrames
-ItemsPanel.InitializeItemsManager = InitializeItemsManager
+ItemsPanel.RefreshItemViewerFrames = ItemViewer.RefreshItemViewerFrames
+ItemsPanel.InitializeItemsManager = ItemViewer.InitializeItemsManager
 ItemsPanel.EnsureItemsSettingsTab = EnsureItemsSettingsTab
 ItemsPanel.RefreshItemsPanel = RefreshItemsPanel
 ItemsPanel.HideItemsPanel = HideItemsPanel
