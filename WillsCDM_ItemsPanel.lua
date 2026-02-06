@@ -280,48 +280,31 @@ local function BeginOrderChange(itemButton, eatNextGlobalMouseUp)
 end
 
 local function ShowItemContextMenu(button)
+    if not button or not button.itemID then
+        return
+    end
     local itemID = button.itemID
-    if not itemID then
-        return
-    end
-    if not EasyMenu then
-        return
-    end
-
     local itemName = ItemsData:GetItemNameByID(itemID) or ("Item " .. itemID)
-    local menuFrame = EnsureItemContextMenu()
 
-    local function SetState(state)
-        DB.SetItemState(itemID, state)
-        ItemsPanel:RefreshItemsPanel()
-        ItemViewer:RefreshItemViewerFrames()
+    local function Generator(owner, rootDescription)
+        rootDescription:CreateButton("Show in Item Cooldowns", function()
+            DB.SetItemState(itemID, ITEM_STATE_SHOWN)
+            ItemsPanel:RefreshItemsPanel()
+            ItemViewer:RefreshItemViewerFrames()
+        end)
+        rootDescription:CreateButton("Move to Not Displayed", function()
+            DB.SetItemState(itemID, ITEM_STATE_HIDDEN)
+            ItemsPanel:RefreshItemsPanel()
+            ItemViewer:RefreshItemViewerFrames()
+        end)
+        rootDescription:CreateButton("Stop Tracking", function()
+            DB.SetItemState(itemID, ITEM_STATE_REMOVED)
+            ItemsPanel:RefreshItemsPanel()
+            ItemViewer:RefreshItemViewerFrames()
+        end)
     end
 
-    local menu = {{
-        text = itemName,
-        isTitle = true,
-        notCheckable = true
-    }, {
-        text = "Show in Item Cooldowns",
-        notCheckable = true,
-        func = function()
-            SetState(ITEM_STATE_SHOWN)
-        end
-    }, {
-        text = "Move to Not Displayed",
-        notCheckable = true,
-        func = function()
-            SetState(ITEM_STATE_HIDDEN)
-        end
-    }, {
-        text = "Stop Tracking",
-        notCheckable = true,
-        func = function()
-            SetState(ITEM_STATE_REMOVED)
-        end
-    }}
-
-    EasyMenu(menu, menuFrame, "cursor", 0, 0, "MENU")
+    MenuUtil.CreateContextMenu(button, Generator)
 end
 
 local function InitializeItemButton(button)
