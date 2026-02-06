@@ -15,7 +15,7 @@ local ITEM_STATE_REMOVED = "removed"
 local lastOwnedItems = {}
 local hasOwnedSnapshot = false
 
-local function GetItemNameByID(itemID)
+function ItemsData:GetItemNameByID(itemID)
     if C_Item and C_Item.GetItemNameByID then
         return C_Item.GetItemNameByID(itemID)
     end
@@ -24,7 +24,7 @@ local function GetItemNameByID(itemID)
 end
 
 local function ItemSortKey(itemID)
-    local name = GetItemNameByID(itemID)
+    local name = ItemsData:GetItemNameByID(itemID)
     if not name or name == "" then
         return tostring(itemID)
     end
@@ -84,10 +84,10 @@ local function ReassignOrders(ids)
     end
 end
 
-local function InsertItemAt(state, itemID, targetItemID, insertBefore)
+function ItemsData:InsertItemAt(state, itemID, targetItemID, insertBefore)
     itemID = tonumber(itemID) or itemID
     targetItemID = tonumber(targetItemID) or targetItemID
-    local ids = ItemsData.GetItemIDsByState(state)
+    local ids = self:GetItemIDsByState(state)
     local existingIndex = nil
     for index, id in ipairs(ids) do
         if id == itemID then
@@ -125,7 +125,7 @@ local function IsTrackableItem(itemID)
     return false
 end
 
-local function ScanOwnedItems()
+function ItemsData:ScanOwnedItems()
     local owned = {}
 
     if C_Container and NUM_BAG_SLOTS then
@@ -153,7 +153,7 @@ local function ScanOwnedItems()
     return owned
 end
 
-local function EnsureTrackedItems(owned)
+function ItemsData:EnsureTrackedItems(owned)
     for itemID in pairs(owned) do
         local state = DB.GetItemState(itemID)
         if state == nil then
@@ -168,7 +168,7 @@ local function EnsureTrackedItems(owned)
     hasOwnedSnapshot = true
 end
 
-local function GetItemIDsByState(state)
+function ItemsData:GetItemIDsByState(state)
     local ids = {}
     local db = DB.GetDB()
     for itemID, settings in pairs(db.itemSettings or {}) do
@@ -181,7 +181,7 @@ local function GetItemIDsByState(state)
     return ids
 end
 
-local function GetVisibleItemIDs(owned)
+function ItemsData:GetVisibleItemIDs(owned)
     local ids = {}
     local db = DB.GetDB()
     for itemID, settings in pairs(db.itemSettings or {}) do
@@ -197,9 +197,3 @@ end
 ItemsData.ITEM_STATE_SHOWN = ITEM_STATE_SHOWN
 ItemsData.ITEM_STATE_HIDDEN = ITEM_STATE_HIDDEN
 ItemsData.ITEM_STATE_REMOVED = ITEM_STATE_REMOVED
-ItemsData.GetItemNameByID = GetItemNameByID
-ItemsData.InsertItemAt = InsertItemAt
-ItemsData.ScanOwnedItems = ScanOwnedItems
-ItemsData.EnsureTrackedItems = EnsureTrackedItems
-ItemsData.GetItemIDsByState = GetItemIDsByState
-ItemsData.GetVisibleItemIDs = GetVisibleItemIDs

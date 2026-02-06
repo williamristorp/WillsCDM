@@ -4,6 +4,7 @@ addon.ItemsPanel = addon.ItemsPanel or {}
 
 local DB = addon.DB
 local ItemsPanel = addon.ItemsPanel
+local ItemViewer = addon.ItemViewer
 
 local function GetCooldownFrames()
     local frames = {}
@@ -208,9 +209,7 @@ local function RefreshCooldownManagerFrames()
         end
     end
 
-    if ItemsPanel and ItemsPanel.RefreshItemViewerFrames then
-        ItemsPanel.RefreshItemViewerFrames()
-    end
+    ItemViewer:RefreshItemViewerFrames()
 end
 
 local function SortedKeys(tbl)
@@ -338,24 +337,16 @@ local function Run()
     DB.InitializeDB()
 
     HookFrames()
-    if ItemsPanel and ItemsPanel.InitializeItemsManager then
-        ItemsPanel.InitializeItemsManager()
-    end
+    ItemViewer:Initialize()
 
     EventRegistry:RegisterCallback("CooldownViewerSettings.OnDataChanged", function()
         HookFrames()
-        if ItemsPanel and ItemsPanel.RefreshItemViewerFrames then
-            ItemsPanel.RefreshItemViewerFrames()
-        end
+        ItemViewer:RefreshItemViewerFrames()
     end)
 
     EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow", function(arg1, table)
-        if ItemsPanel and ItemsPanel.EnsureItemsSettingsTab then
-            ItemsPanel.EnsureItemsSettingsTab(table)
-        end
-        if ItemsPanel and ItemsPanel.RefreshItemsPanel then
-            ItemsPanel.RefreshItemsPanel(table)
-        end
+        ItemsPanel:EnsureItemsSettingsTab(table)
+        ItemsPanel:RefreshItemsPanel(table)
         -- local trinket1Location = ItemLocation:CreateFromEquipmentSlot(13)
         -- local trinket2Location = ItemLocation:CreateFromEquipmentSlot(14)
 
@@ -549,9 +540,7 @@ local function Run()
                 return
             end
         end
-        if ItemsPanel and ItemsPanel.RefreshItemsPanel then
-            ItemsPanel.RefreshItemsPanel()
-        end
+        ItemsPanel:RefreshItemsPanel()
     end)
 
 end
@@ -642,7 +631,7 @@ SlashCmdList["WCDM"] = function(msg, editBox)
         db.itemSettings = db.itemSettings or {}
 
         local shownState = itemsData and itemsData.ITEM_STATE_SHOWN or "shown"
-        local shownIDs = (itemsData and itemsData.GetItemIDsByState) and itemsData.GetItemIDsByState(shownState) or {}
+        local shownIDs = (itemsData and itemsData.GetItemIDsByState) and itemsData:GetItemIDsByState(shownState) or {}
 
         local maxOrder = 0
         for _, itemID in ipairs(shownIDs) do
@@ -667,10 +656,10 @@ SlashCmdList["WCDM"] = function(msg, editBox)
         end
 
         if ItemsPanel and ItemsPanel.RefreshItemsPanel then
-            ItemsPanel.RefreshItemsPanel()
+            ItemsPanel:RefreshItemsPanel()
         end
-        if ItemsPanel and ItemsPanel.RefreshItemViewerFrames then
-            ItemsPanel.RefreshItemViewerFrames()
+        if ItemViewer and ItemViewer.RefreshItemViewerFrames then
+            ItemViewer:RefreshItemViewerFrames()
         end
 
         print("Added " .. added .. " dummy items to the Items panel.")
@@ -696,15 +685,15 @@ SlashCmdList["WCDM"] = function(msg, editBox)
         end
 
         if itemsData and itemsData.GetItemIDsByState then
-            itemsData.GetItemIDsByState(itemsData.ITEM_STATE_SHOWN)
-            itemsData.GetItemIDsByState(itemsData.ITEM_STATE_HIDDEN)
+            itemsData:GetItemIDsByState(itemsData.ITEM_STATE_SHOWN)
+            itemsData:GetItemIDsByState(itemsData.ITEM_STATE_HIDDEN)
         end
 
         if ItemsPanel and ItemsPanel.RefreshItemsPanel then
-            ItemsPanel.RefreshItemsPanel()
+            ItemsPanel:RefreshItemsPanel()
         end
-        if ItemsPanel and ItemsPanel.RefreshItemViewerFrames then
-            ItemsPanel.RefreshItemViewerFrames()
+        if ItemViewer and ItemViewer.RefreshItemViewerFrames then
+            ItemViewer:RefreshItemViewerFrames()
         end
 
         print("Removed " .. removed .. " dummy items from the Items panel.")

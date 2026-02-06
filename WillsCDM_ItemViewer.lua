@@ -3,13 +3,82 @@ addon = addon or {}
 
 local DB = addon.DB
 local ItemsData = addon.ItemsData
+local ItemVisuals = addon.ItemVisuals
 local ItemViewer = addon.ItemViewer or {}
 addon.ItemViewer = ItemViewer
 
 local itemFrames = {}
 local itemViewer = nil
 
-local function EnsureItemViewer()
+local ItemViewerFrame = {}
+ItemViewerFrame.__index = ItemViewerFrame
+
+function ItemViewerFrame:New(parent)
+    local templateName = nil
+    local essential = _G["EssentialCooldownViewer"]
+    if essential and type(essential.itemTemplate) == "string" then
+        templateName = essential.itemTemplate
+    end
+
+    local frame = templateName and CreateFrame("Frame", nil, parent, templateName) or CreateFrame("Frame", nil, parent)
+    local obj = setmetatable({
+        frame = frame
+    }, ItemViewerFrame)
+    obj:Initialize()
+    return obj
+end
+
+function ItemViewerFrame:Initialize()
+    local frame = self.frame
+    if not frame.Icon then
+        frame.Icon = frame:CreateTexture(nil, "ARTWORK")
+        frame.Icon:SetAllPoints()
+        frame.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
+    if not frame.Cooldown then
+        frame.Cooldown = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+        frame.Cooldown:SetAllPoints()
+    end
+    if frame.OutOfRange then
+        frame.OutOfRange:Hide()
+    end
+    if frame.cooldownStartTime == nil then
+        frame.cooldownStartTime = 0
+    end
+    if frame.cooldownDuration == nil then
+        frame.cooldownDuration = 0
+    end
+end
+
+function ItemViewerFrame:Show()
+    self.frame:Show()
+end
+
+function ItemViewerFrame:Hide()
+    self.frame:Hide()
+end
+
+function ItemViewerFrame:UpdateItem(itemID)
+    local frame = self.frame
+    if not itemID then
+        frame:Hide()
+        return
+    end
+
+    frame.itemID = itemID
+    if ItemVisuals then
+        ItemVisuals:ApplyItemIcon(frame, itemID)
+        ItemVisuals:UpdateItemCooldown(frame, itemID)
+    else
+        if frame.Icon then
+            frame.Icon:SetTexture(C_Item.GetItemIconByID(itemID))
+        end
+    end
+
+    frame:Show()
+end
+
+function ItemViewer:EnsureItemViewer()
     if itemViewer then
         return
     end
@@ -76,8 +145,8 @@ local function GetGrowthOffset(point, growth, totalWidth)
     return 0
 end
 
-local function SetGrowthDirection(layoutName, growth)
-    EnsureItemViewer()
+function ItemViewer:SetGrowthDirection(layoutName, growth)
+    self:EnsureItemViewer()
     local layout = DB.GetItemViewerLayout(layoutName)
     local totalWidth = itemViewer:GetWidth() or 0
     local oldGrowth = GetGrowthDirection(layout)
@@ -87,41 +156,12 @@ local function SetGrowthDirection(layoutName, growth)
     layout.growth = growth
 end
 
-local function CreateViewerItemFrame(parent)
-    local templateName = nil
-    local essential = _G["EssentialCooldownViewer"]
-    if essential and type(essential.itemTemplate) == "string" then
-        templateName = essential.itemTemplate
-    end
-
-    local frame = templateName and CreateFrame("Frame", nil, parent, templateName) or CreateFrame("Frame", nil, parent)
-    if not frame.Icon then
-        frame.Icon = frame:CreateTexture(nil, "ARTWORK")
-        frame.Icon:SetAllPoints()
-        frame.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    end
-    if not frame.Cooldown then
-        frame.Cooldown = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
-        frame.Cooldown:SetAllPoints()
-    end
-    if frame.OutOfRange then
-        frame.OutOfRange:Hide()
-    end
-    if frame.cooldownStartTime == nil then
-        frame.cooldownStartTime = 0
-    end
-    if frame.cooldownDuration == nil then
-        frame.cooldownDuration = 0
-    end
-    return frame
-end
-
-local function EnsureItemViewerFrames(count)
-    EnsureItemViewer()
+function ItemViewer:EnsureItemViewerFrames(count)
+    self:EnsureItemViewer()
 
     for i = 1, count do
         if not itemFrames[i] then
-            itemFrames[i] = CreateViewerItemFrame(itemViewer)
+            itemFrames[i] = ItemViewerFrame:New(itemViewer)
         end
         itemFrames[i]:Show()
     end
@@ -131,9 +171,7 @@ local function EnsureItemViewerFrames(count)
     end
 end
 
-local ApplyItemViewerLayout
-
-local function UpdateItemsLayout(count)
+function ItemViewer:UpdateItemsLayout(count)
     if not itemViewer then
         return
     end
@@ -152,12 +190,12 @@ local function UpdateItemsLayout(count)
     local adjustedSpacing = spacing - (4 * scale)
     local totalWidth = (visualSize * count) + (adjustedSpacing * (count - 1))
     itemViewer:SetSize(totalWidth, visualSize)
-    if ApplyItemViewerLayout and not itemViewer.WillsCDM_IsMoving then
-        ApplyItemViewerLayout(layoutName)
+    if not itemViewer.WillsCDM_IsMoving then
+        self:ApplyItemViewerLayout(layoutName)
     end
 
     for i = 1, count do
-        local frame = itemFrames[i]
+        local frame = itemFrames[i].frame
         frame:SetSize(baseSize, baseSize)
         frame:SetScale(scale)
         if frame.Icon then
@@ -189,41 +227,6 @@ local function UpdateItemsLayout(count)
     end
 end
 
-local function UpdateItemFrame(frame, itemID)
-    if not itemID then
-        frame:Hide()
-        return
-    end
-
-    frame.itemID = itemID
-    if frame.Icon then
-        frame.Icon:SetTexture(C_Item.GetItemIconByID(itemID))
-    end
-
-    if frame.Cooldown then
-        local startTime, duration, enable = C_Item.GetItemCooldown(itemID)
-        if enable == 0 or not duration or duration == 0 then
-            CooldownFrame_Clear(frame.Cooldown)
-            frame.Cooldown:SetDrawSwipe(false)
-            if frame.Icon then
-                frame.Icon:SetDesaturation(0)
-            end
-            frame.cooldownStartTime = 0
-            frame.cooldownDuration = 0
-        else
-            frame.Cooldown:SetCooldown(startTime, duration)
-            frame.Cooldown:SetDrawSwipe(true)
-            if frame.Icon then
-                frame.Icon:SetDesaturation(1)
-            end
-            frame.cooldownStartTime = startTime or 0
-            frame.cooldownDuration = duration or 0
-        end
-    end
-
-    frame:Show()
-end
-
 local function ShouldShowItemViewer()
     if not itemViewer then
         return false
@@ -237,8 +240,8 @@ local function ShouldShowItemViewer()
     return itemViewer.WillsCDM_HasItems == true
 end
 
-ApplyItemViewerLayout = function(layoutName)
-    EnsureItemViewer()
+function ItemViewer:ApplyItemViewerLayout(layoutName)
+    self:EnsureItemViewer()
     local layout = DB.GetItemViewerLayout(layoutName)
     local growth = GetGrowthDirection(layout)
     local totalWidth = itemViewer:GetWidth() or 0
@@ -248,37 +251,37 @@ ApplyItemViewerLayout = function(layoutName)
     itemViewer.WillsCDM_LayoutName = layoutName
 end
 
-local function RefreshItemViewerFrames()
-    EnsureItemViewer()
+function ItemViewer:RefreshItemViewerFrames()
+    self:EnsureItemViewer()
 
-    local owned = ItemsData.ScanOwnedItems()
-    ItemsData.EnsureTrackedItems(owned)
-    local visibleIDs = ItemsData.GetVisibleItemIDs(owned)
+    local owned = ItemsData:ScanOwnedItems()
+    ItemsData:EnsureTrackedItems(owned)
+    local visibleIDs = ItemsData:GetVisibleItemIDs(owned)
     local count = #visibleIDs
     if itemViewer and itemViewer.WillsCDM_ForceShow and count == 0 then
         count = 1
     end
 
-    EnsureItemViewerFrames(count)
+    self:EnsureItemViewerFrames(count)
 
     local db = DB.GetDB()
     for i, itemID in ipairs(visibleIDs) do
-        local frame = itemFrames[i]
+        local frame = itemFrames[i].frame
         if frame.Cooldown then
             frame.Cooldown:SetSwipeColor(unpack(db.defaultCooldownSwipeColor))
             frame.Cooldown:SetDrawEdge(db.defaultAlwaysShowCooldownEdge == true)
         end
-        UpdateItemFrame(frame, itemID)
+        itemFrames[i]:UpdateItem(itemID)
     end
 
     if count > #visibleIDs then
         for i = #visibleIDs + 1, count do
-            UpdateItemFrame(itemFrames[i], nil)
+            itemFrames[i]:UpdateItem(nil)
         end
     end
 
     if not InCombatLockdown() then
-        UpdateItemsLayout(count)
+        self:UpdateItemsLayout(count)
     end
 
     itemViewer.WillsCDM_HasItems = #visibleIDs > 0
@@ -286,10 +289,10 @@ local function RefreshItemViewerFrames()
     itemViewer:SetShown(ShouldShowItemViewer())
 end
 
-local function InitializeItemsEditMode()
+function ItemViewer:InitializeItemsEditMode()
     local LEM = LibStub and LibStub("LibEditMode", true)
 
-    EnsureItemViewer()
+    self:EnsureItemViewer()
 
     local function OnPositionChanged(frame, layoutName, point, x, y)
         local layout = DB.GetItemViewerLayout(layoutName)
@@ -299,7 +302,7 @@ local function InitializeItemsEditMode()
         layout.point = point
         layout.x = (x or 0) - offset
         layout.y = y
-        ApplyItemViewerLayout(layoutName)
+        self:ApplyItemViewerLayout(layoutName)
         itemViewer.WillsCDM_IsMoving = false
     end
 
@@ -328,7 +331,7 @@ local function InitializeItemsEditMode()
             set = function(layoutName, value)
                 local layout = DB.GetItemViewerLayout(layoutName)
                 layout.scale = value
-                UpdateItemsLayout(itemViewer and itemViewer.WillsCDM_VisibleCount or #itemFrames)
+                self:UpdateItemsLayout(itemViewer and itemViewer.WillsCDM_VisibleCount or #itemFrames)
             end,
             formatter = function(value)
                 return FormatPercentage(value, true)
@@ -347,7 +350,7 @@ local function InitializeItemsEditMode()
             set = function(layoutName, value)
                 local layout = DB.GetItemViewerLayout(layoutName)
                 layout.padding = value
-                UpdateItemsLayout(itemViewer and itemViewer.WillsCDM_VisibleCount or #itemFrames)
+                self:UpdateItemsLayout(itemViewer and itemViewer.WillsCDM_VisibleCount or #itemFrames)
             end
         }, {
             name = "Growth Direction",
@@ -368,36 +371,36 @@ local function InitializeItemsEditMode()
                 return GetGrowthDirection(layout)
             end,
             set = function(layoutName, value)
-                SetGrowthDirection(layoutName, value)
-                UpdateItemsLayout(itemViewer and itemViewer.WillsCDM_VisibleCount or #itemFrames)
+                self:SetGrowthDirection(layoutName, value)
+                self:UpdateItemsLayout(itemViewer and itemViewer.WillsCDM_VisibleCount or #itemFrames)
             end
         }})
 
         LEM:RegisterCallback("layout", function(layoutName)
-            ApplyItemViewerLayout(layoutName)
-            RefreshItemViewerFrames()
+            self:ApplyItemViewerLayout(layoutName)
+            self:RefreshItemViewerFrames()
         end)
 
         LEM:RegisterCallback("enter", function()
             if itemViewer then
                 itemViewer.WillsCDM_ForceShow = true
             end
-            RefreshItemViewerFrames()
+            self:RefreshItemViewerFrames()
         end)
 
         LEM:RegisterCallback("exit", function()
             if itemViewer then
                 itemViewer.WillsCDM_ForceShow = false
             end
-            RefreshItemViewerFrames()
+            self:RefreshItemViewerFrames()
         end)
     end
 end
 
-local function InitializeItemsManager()
-    InitializeItemsEditMode()
-    ApplyItemViewerLayout("Default")
-    RefreshItemViewerFrames()
+function ItemViewer:Initialize()
+    self:InitializeItemsEditMode()
+    self:ApplyItemViewerLayout("Default")
+    self:RefreshItemViewerFrames()
 
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -406,9 +409,6 @@ local function InitializeItemsManager()
     f:RegisterEvent("BAG_UPDATE_COOLDOWN")
     f:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     f:SetScript("OnEvent", function()
-        RefreshItemViewerFrames()
+        self:RefreshItemViewerFrames()
     end)
 end
-
-ItemViewer.RefreshItemViewerFrames = RefreshItemViewerFrames
-ItemViewer.InitializeItemsManager = InitializeItemsManager

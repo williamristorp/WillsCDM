@@ -4,6 +4,7 @@ addon = addon or {}
 local DB = addon.DB
 local ItemsPanel = addon.ItemsPanel or {}
 local ItemsData = addon.ItemsData
+local ItemVisuals = addon.ItemVisuals
 local ItemViewer = addon.ItemViewer
 addon.ItemsPanel = ItemsPanel
 
@@ -32,7 +33,7 @@ local function IsTabButton(child)
     return name and name:find("Tab") ~= nil
 end
 
-local function HideItemsPanel(settingsFrame)
+function ItemsPanel:HideItemsPanel(settingsFrame)
     if settingsFrame.WillsCDM_ItemsPanel then
         settingsFrame.WillsCDM_ItemsPanel:Hide()
     end
@@ -220,18 +221,18 @@ local function EndOrderChange()
             if sourceItem.categoryState ~= targetState then
                 DB.SetItemState(sourceItem.itemID, targetState)
             end
-            ItemsData.InsertItemAt(targetState, sourceItem.itemID, nil, false)
+            ItemsData:InsertItemAt(targetState, sourceItem.itemID, nil, false)
         else
             if sourceItem.categoryState ~= targetState then
                 DB.SetItemState(sourceItem.itemID, targetState)
             end
-            ItemsData.InsertItemAt(targetState, sourceItem.itemID, targetItem.itemID, reorderOffset == 0)
+            ItemsData:InsertItemAt(targetState, sourceItem.itemID, targetItem.itemID, reorderOffset == 0)
         end
     end
 
     CancelOrderChange()
-    RefreshItemsPanel()
-    ItemViewer.RefreshItemViewerFrames()
+    ItemsPanel:RefreshItemsPanel()
+    ItemViewer:RefreshItemViewerFrames()
 end
 
 local function BeginOrderChange(itemButton, eatNextGlobalMouseUp)
@@ -287,13 +288,13 @@ local function ShowItemContextMenu(button)
         return
     end
 
-    local itemName = ItemsData.GetItemNameByID(itemID) or ("Item " .. itemID)
+    local itemName = ItemsData:GetItemNameByID(itemID) or ("Item " .. itemID)
     local menuFrame = EnsureItemContextMenu()
 
     local function SetState(state)
         DB.SetItemState(itemID, state)
-        RefreshItemsPanel()
-        ItemViewer.RefreshItemViewerFrames()
+        ItemsPanel:RefreshItemsPanel()
+        ItemViewer:RefreshItemViewerFrames()
     end
 
     local menu = {{
@@ -329,8 +330,12 @@ local function InitializeItemButton(button)
     end
 
     if button.Cooldown then
-        CooldownFrame_Clear(button.Cooldown)
-        button.Cooldown:SetDrawSwipe(false)
+        if ItemVisuals then
+            ItemVisuals:ClearCooldown(button, nil)
+        else
+            CooldownFrame_Clear(button.Cooldown)
+            button.Cooldown:SetDrawSwipe(false)
+        end
         button.Cooldown:SetDrawEdge(false)
     end
 
@@ -416,17 +421,25 @@ local function InitializeItemButton(button)
             return
         end
         if self.WillsCDM_Empty then
-            self.Icon:SetTexture(nil)
-            self.Icon:SetAtlas("cdm-empty", true)
-        elseif self.itemID then
-            local icon = C_Item.GetItemIconByID(self.itemID)
-            if not icon and GetItemIcon then
-                icon = GetItemIcon(self.itemID)
-            end
-            if icon then
-                self.Icon:SetTexture(icon)
+            if ItemVisuals then
+                ItemVisuals:SetEmptySlot(self)
             else
-                self.Icon:SetTexture(134400)
+                self.Icon:SetTexture(nil)
+                self.Icon:SetAtlas("cdm-empty", true)
+            end
+        elseif self.itemID then
+            if ItemVisuals then
+                ItemVisuals:ApplyItemIcon(self, self.itemID)
+            else
+                local icon = C_Item.GetItemIconByID(self.itemID)
+                if not icon and GetItemIcon then
+                    icon = GetItemIcon(self.itemID)
+                end
+                if icon then
+                    self.Icon:SetTexture(icon)
+                else
+                    self.Icon:SetTexture(134400)
+                end
             end
         end
     end)
@@ -454,7 +467,7 @@ local function ResetCategoryButtons(category)
     end
 end
 
-local function LayoutCategory(category, itemIDs, owned)
+function ItemsPanel:LayoutCategory(category, itemIDs, owned)
     ResetCategoryButtons(category)
 
     local container = category.Container or category.Content
@@ -493,13 +506,17 @@ local function LayoutCategory(category, itemIDs, owned)
         emptyButton.layoutIndex = 1
         emptyButton:ClearAllPoints()
         emptyButton:SetSize(size, size)
-        if emptyButton.Icon then
-            emptyButton.Icon:SetTexture(nil)
-            emptyButton.Icon:SetAtlas("cdm-empty", true)
-            emptyButton.Icon:SetDesaturated(false)
-        end
-        if emptyButton.Cooldown then
-            CooldownFrame_Clear(emptyButton.Cooldown)
+        if ItemVisuals then
+            ItemVisuals:SetEmptySlot(emptyButton)
+        else
+            if emptyButton.Icon then
+                emptyButton.Icon:SetTexture(nil)
+                emptyButton.Icon:SetAtlas("cdm-empty", true)
+                emptyButton.Icon:SetDesaturated(false)
+            end
+            if emptyButton.Cooldown then
+                CooldownFrame_Clear(emptyButton.Cooldown)
+            end
         end
     else
         for index, itemID in ipairs(itemIDs) do
@@ -511,16 +528,22 @@ local function LayoutCategory(category, itemIDs, owned)
             button:ClearAllPoints()
             button:SetSize(size, size)
 
+            if ItemVisuals then
+                ItemVisuals:ApplyItemIcon(button, itemID)
+            else
+                if button.Icon then
+                    local icon = C_Item.GetItemIconByID(itemID)
+                    if not icon and GetItemIcon then
+                        icon = GetItemIcon(itemID)
+                    end
+                    if icon then
+                        button.Icon:SetTexture(icon)
+                    else
+                        button.Icon:SetTexture(134400)
+                    end
+                end
+            end
             if button.Icon then
-                local icon = C_Item.GetItemIconByID(itemID)
-                if not icon and GetItemIcon then
-                    icon = GetItemIcon(itemID)
-                end
-                if icon then
-                    button.Icon:SetTexture(icon)
-                else
-                    button.Icon:SetTexture(134400)
-                end
                 button.Icon:SetDesaturated(not owned[itemID])
             end
 
@@ -553,7 +576,7 @@ local function LayoutCategory(category, itemIDs, owned)
     category:SetHeight(totalHeight or (headerHeight + 6 + contentHeight))
 end
 
-local function CreateItemCategory(parent, title, state)
+function ItemsPanel:CreateItemCategory(parent, title, state)
     local categoryDisplay = CreateFrame("Frame", nil, parent, "CooldownViewerSettingsCategoryTemplate")
     categoryDisplay.state = state
     categoryDisplay.Collapsed = false
@@ -595,7 +618,7 @@ local function CreateItemCategory(parent, title, state)
 
     function categoryDisplay:ToggleCollapsed()
         self:SetCollapsed(not self:IsCollapsed())
-        RefreshItemsPanel()
+        ItemsPanel:RefreshItemsPanel()
     end
 
     if categoryDisplay.Header then
@@ -685,9 +708,9 @@ local function CreateItemCategory(parent, title, state)
     return categoryDisplay
 end
 
-RefreshItemsPanel = function(settingsFrame)
-    local owned = ItemsData.ScanOwnedItems()
-    ItemsData.EnsureTrackedItems(owned)
+function ItemsPanel:RefreshItemsPanel(settingsFrame)
+    local owned = ItemsData:ScanOwnedItems()
+    ItemsData:EnsureTrackedItems(owned)
 
     local frame = settingsFrame or _G["CooldownViewerSettings"]
     if not frame then
@@ -708,16 +731,16 @@ RefreshItemsPanel = function(settingsFrame)
         enable:SetChecked(DB.GetItemViewerEnabled())
     end
 
-    local shownIDs = ItemsData.GetItemIDsByState(ITEM_STATE_SHOWN)
-    local hiddenIDs = ItemsData.GetItemIDsByState(ITEM_STATE_HIDDEN)
+    local shownIDs = ItemsData:GetItemIDsByState(ITEM_STATE_SHOWN)
+    local hiddenIDs = ItemsData:GetItemIDsByState(ITEM_STATE_HIDDEN)
 
     local categories = itemsPanel.WillsCDM_Categories
     if not categories then
         return
     end
 
-    LayoutCategory(categories[1], shownIDs, owned)
-    LayoutCategory(categories[2], hiddenIDs, owned)
+    self:LayoutCategory(categories[1], shownIDs, owned)
+    self:LayoutCategory(categories[2], hiddenIDs, owned)
 
     local scrollChild = itemsPanel.WillsCDM_ScrollChild
     if scrollChild then
@@ -777,11 +800,11 @@ local function ShowItemsPanel(settingsFrame)
     end
 
     settingsFrame.WillsCDM_HiddenChildren = hidden
-    RefreshItemsPanel(settingsFrame)
+    ItemsPanel:RefreshItemsPanel(settingsFrame)
     itemsPanel:Show()
 end
 
-local function EnsureItemsSettingsTab(settingsFrame)
+function ItemsPanel:EnsureItemsSettingsTab(settingsFrame)
     if settingsFrame.WillsCDM_ItemsPanel then
         return
     end
@@ -816,16 +839,16 @@ local function EnsureItemsSettingsTab(settingsFrame)
 
     scrollFrame:SetScript("OnSizeChanged", function(self)
         scrollChild:SetWidth(self:GetWidth())
-        RefreshItemsPanel(settingsFrame)
+        ItemsPanel:RefreshItemsPanel(settingsFrame)
     end)
 
     itemsPanel:HookScript("OnShow", function()
         scrollChild:SetWidth(scrollFrame:GetWidth())
-        RefreshItemsPanel(settingsFrame)
+        ItemsPanel:RefreshItemsPanel(settingsFrame)
     end)
 
-    local shownCategory = CreateItemCategory(scrollChild, "Item Cooldowns", ITEM_STATE_SHOWN)
-    local hiddenCategory = CreateItemCategory(scrollChild, "Not Displayed", ITEM_STATE_HIDDEN)
+    local shownCategory = self:CreateItemCategory(scrollChild, "Item Cooldowns", ITEM_STATE_SHOWN)
+    local hiddenCategory = self:CreateItemCategory(scrollChild, "Not Displayed", ITEM_STATE_HIDDEN)
 
     itemsPanel.WillsCDM_Categories = {shownCategory, hiddenCategory}
     itemsPanel.WillsCDM_ScrollChild = scrollChild
@@ -836,19 +859,23 @@ local function EnsureItemsSettingsTab(settingsFrame)
     spellsTab.WillsCDM_IsTabButton = true
     aurasTab.WillsCDM_IsTabButton = true
 
-    local itemsTab = CreateFrame("Button", "$parent.ItemsTab", settingsFrame, "CooldownViewerSettingsTabTemplate")
+    -- Do not parent the itemsTab to settingsFrame! Doing so will add it to its .TabButtons list and will taint everything inside CooldownViewer as a result.
+    local itemsTab = CreateFrame("Button", "$parent.ItemsTab", UIParent, "CooldownViewerSettingsTabTemplate")
     itemsTab.WillsCDM_IsTabButton = true
     itemsTab.tooltipText = "Items"
     itemsTab.displayMode = "items"
     itemsTab.activeAtlas = "minimap-genericevent-hornicon-small"
     itemsTab.inactiveAtlas = "minimap-genericevent-hornicon-small"
     itemsTab:SetChecked(false)
-    if itemsTab.Text then
-        itemsTab.Text:SetText("Items")
-    else
-        itemsTab:SetText("Items")
-    end
     itemsTab:SetPoint("TOP", aurasTab, "BOTTOM", 0, -3)
+
+    -- Hide the tab when the settings window is closed
+    settingsFrame:HookScript("OnHide", function()
+        itemsTab:Hide()
+    end)
+    settingsFrame:HookScript("OnShow", function()
+        itemsTab:Show()
+    end)
 
     itemsTab:SetScript("OnClick", function(self)
         if settingsFrame.WillsCDM_ItemsPanel:IsShown() then
@@ -867,15 +894,9 @@ local function EnsureItemsSettingsTab(settingsFrame)
             spellsTab:SetChecked(mode == "spells")
             aurasTab:SetChecked(mode == "auras")
             itemsTab:SetChecked(mode == "items")
-            HideItemsPanel(self)
+            ItemsPanel:HideItemsPanel(self)
         end)
     end
 
     itemsTab:Show()
 end
-
-ItemsPanel.RefreshItemViewerFrames = ItemViewer.RefreshItemViewerFrames
-ItemsPanel.InitializeItemsManager = ItemViewer.InitializeItemsManager
-ItemsPanel.EnsureItemsSettingsTab = EnsureItemsSettingsTab
-ItemsPanel.RefreshItemsPanel = RefreshItemsPanel
-ItemsPanel.HideItemsPanel = HideItemsPanel
