@@ -51,25 +51,6 @@ local function SortItemIDs(items)
     end)
 end
 
-local function NormalizeItemSettingsKeys()
-    local db = DB.GetDB()
-    if not db or type(db.itemSettings) ~= "table" then
-        return
-    end
-
-    for key, settings in pairs(db.itemSettings) do
-        if type(key) == "string" then
-            local numKey = tonumber(key)
-            if numKey then
-                if db.itemSettings[numKey] == nil then
-                    db.itemSettings[numKey] = settings
-                end
-                db.itemSettings[key] = nil
-            end
-        end
-    end
-end
-
 local function GetItemOrder(itemID)
     local settings = DB.GetItemSettings(itemID)
     return settings and settings.order or nil
@@ -188,7 +169,6 @@ local function EnsureTrackedItems(owned)
 end
 
 local function GetItemIDsByState(state)
-    NormalizeItemSettingsKeys()
     local ids = {}
     local db = DB.GetDB()
     for itemID, settings in pairs(db.itemSettings or {}) do
@@ -202,7 +182,6 @@ local function GetItemIDsByState(state)
 end
 
 local function GetVisibleItemIDs(owned)
-    NormalizeItemSettingsKeys()
     local ids = {}
     local db = DB.GetDB()
     for itemID, settings in pairs(db.itemSettings or {}) do
