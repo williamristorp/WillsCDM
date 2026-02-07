@@ -10,7 +10,7 @@ WillsCDM_DB.lua
 WillsCDM_ItemsData.lua
 WillsCDM_ItemVisuals.lua
 WillsCDM_ItemViewer.lua
-WillsCDM_ItemsPanel.lua
+WillsCDM_MiscPanel.lua
 WillsCDM.lua
 libs/LibEditMode/embed.xml
 libs/LibStub/LibStub.lua

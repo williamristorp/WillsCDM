@@ -1,9 +1,10 @@
 local addonName, addon = ...
 addon = addon or {}
-addon.ItemsPanel = addon.ItemsPanel or {}
+addon.MiscPanel = addon.MiscPanel or {}
 
 local DB = addon.DB
-local ItemsPanel = addon.ItemsPanel
+local MiscPanel = addon.MiscPanel
+local ItemsData = addon.ItemsData
 local ItemViewer = addon.ItemViewer
 
 local function GetCooldownFrames()
@@ -346,70 +347,12 @@ local function Run()
         ItemViewer:RefreshItemViewerFrames()
     end)
 
-    EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow", function(arg1, table)
-        ItemsPanel:EnsureItemsSettingsTab(table)
-        ItemsPanel:RefreshItemsPanel(table)
-        -- local trinket1Location = ItemLocation:CreateFromEquipmentSlot(13)
-        -- local trinket2Location = ItemLocation:CreateFromEquipmentSlot(14)
-
-        -- local trinket1ID = C_Item.GetItemID(trinket1Location)
-        -- local trinket2ID = C_Item.GetItemID(trinket2Location)
-
-        -- local trinket1Info = trinket1ID and C_Item.GetItemCooldown(trinket1ID)
-        -- local trinket2Info = trinket2ID and C_Item.GetItemCooldown(trinket2ID)
-
-        -- print("Trinket 1 ID: " .. tostring(trinket1ID) .. ", Cooldown Info: " .. tostring(trinket1Info))
-        -- print("Trinket 2 ID: " .. tostring(trinket2ID) .. ", Cooldown Info: " .. tostring(trinket2Info))
-
-        -- print("Showing Cooldown Viewer Settings")
-        -- for k, v in pairs(table) do
-        --     print("  ", k, v)
-        -- end
-
-        -- local titleText = table:GetTitleText()
-        -- print(titleText:GetObjectType(), titleText:GetText())
-
-        -- local essentialIDs = C_CooldownViewer.GetCooldownViewerCategorySet(0)
-        -- print("Essential Cooldowns:")
-        -- for _, cooldownID in ipairs(essentialIDs) do
-        --     local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
-        --     local spellID = cdInfo.spellID
-        --     local spellName = C_Spell.GetSpellName(spellID) or "Unknown Spell"
-        --     print("  Cooldown ID:", cooldownID, "Spell ID:", spellID, "Name:", spellName)
-        -- end
-
-        -- local utilityIDs = C_CooldownViewer.GetCooldownViewerCategorySet(1)
-        -- print("Utility Cooldowns:")
-        -- for _, cooldownID in ipairs(utilityIDs) do
-        --     local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
-        --     local spellID = cdInfo.spellID
-        --     local spellName = C_Spell.GetSpellName(spellID) or "Unknown Spell"
-        --     print("  Cooldown ID:", cooldownID, "Spell ID:", spellID, "Name:", spellName)
-        -- end
-
-        -- local dataProvider = table:GetDataProvider()
-        -- print("Data Provider: " .. tostring(dataProvider))
-        -- for k, v in pairs(dataProvider) do
-        --     print("  ", k, v)
-        -- end
-
-        -- local catPool = table.categoryPool
-        -- print("Category Pool: " .. tostring(catPool))
-        -- for cat in catPool:EnumerateActive() do
-        --     print("  Category:", cat)
-        --     for k, v in pairs(cat) do
-        --         print("    ", k, v)
-        --     end
-
-        --     local item = cat.itemPool:Acquire()
-        --     item.layoutIndex = 999
-        --     item:SetAsCooldown(trinket1ID, 999)
-        --     item:Show()
-        -- end
+    EventRegistry:RegisterCallback("CooldownViewerSettings.OnShow", function(arg1, settingsFrame)
+        MiscPanel:EnsureMiscSettingsTab(settingsFrame)
+        MiscPanel:RefreshMiscPanel(settingsFrame)
     end)
 
     Menu.ModifyMenu("MENU_COOLDOWN_SETTINGS_ITEM", function(owner, rootDescription, contextData)
-
         local cooldownID = owner.cooldownID
         local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         local category = cdInfo.category
@@ -553,16 +496,23 @@ local function Run()
     refreshFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     refreshFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     refreshFrame:RegisterEvent("BAG_UPDATE")
+    refreshFrame:RegisterEvent("SPELLS_CHANGED")
     refreshFrame:SetScript("OnEvent", function(_, event, unit)
         if event == "PLAYER_SPECIALIZATION_CHANGED" then
             if unit ~= "player" then
                 return
             end
         end
-        ItemsPanel:RefreshItemsPanel()
+        if event == "SPELLS_CHANGED" then
+            if ItemsData and ItemsData.InvalidateRacialSpellCache then
+                ItemsData:InvalidateRacialSpellCache()
+            end
+        end
+        MiscPanel:RefreshMiscPanel()
     end)
 
 end
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:SetScript("OnEvent", function(self, event, eventAddonName)
@@ -650,11 +600,17 @@ SlashCmdList["WCDM"] = function(msg, editBox)
         db.itemSettings = db.itemSettings or {}
 
         local shownState = itemsData and itemsData.ITEM_STATE_SHOWN or "shown"
-        local shownIDs = (itemsData and itemsData.GetItemIDsByState) and itemsData:GetItemIDsByState(shownState) or {}
+        local shownEntries = (itemsData and itemsData.GetEntriesByState) and itemsData:GetEntriesByState(shownState) or
+                                 {}
 
         local maxOrder = 0
-        for _, itemID in ipairs(shownIDs) do
-            local settings = DB.GetItemSettings(itemID)
+        for _, entry in ipairs(shownEntries) do
+            local settings = nil
+            if entry.kind == "spell" then
+                settings = DB.GetSpellItemSettings(entry.id)
+            else
+                settings = DB.GetItemSettings(entry.id)
+            end
             if settings and settings.order and settings.order > maxOrder then
                 maxOrder = settings.order
             end
@@ -674,8 +630,8 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             nextID = nextID + 1
         end
 
-        if ItemsPanel and ItemsPanel.RefreshItemsPanel then
-            ItemsPanel:RefreshItemsPanel()
+        if MiscPanel and MiscPanel.RefreshMiscPanel then
+            MiscPanel:RefreshMiscPanel()
         end
         if ItemViewer and ItemViewer.RefreshItemViewerFrames then
             ItemViewer:RefreshItemViewerFrames()
@@ -708,8 +664,8 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             itemsData:GetItemIDsByState(itemsData.ITEM_STATE_HIDDEN)
         end
 
-        if ItemsPanel and ItemsPanel.RefreshItemsPanel then
-            ItemsPanel:RefreshItemsPanel()
+        if MiscPanel and MiscPanel.RefreshMiscPanel then
+            MiscPanel:RefreshMiscPanel()
         end
         if ItemViewer and ItemViewer.RefreshItemViewerFrames then
             ItemViewer:RefreshItemViewerFrames()

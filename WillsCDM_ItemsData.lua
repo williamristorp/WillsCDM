@@ -12,8 +12,205 @@ local ITEM_STATE_SHOWN = "shown"
 local ITEM_STATE_HIDDEN = "hidden"
 local ITEM_STATE_REMOVED = "removed"
 
+local RACIAL_NAME_FALLBACK = "Racial"
+local GENERAL_NAME_FALLBACK = "General"
+
 local lastOwnedItems = {}
 local hasOwnedSnapshot = false
+local racialSpellCache = nil
+local racialSpellCacheDirty = true
+local didMigrateLegacyEntries = false
+
+local function MakeEntry(kind, id)
+    return {
+        kind = kind,
+        id = id
+    }
+end
+
+local function IsSpellEntry(entry)
+    return entry and entry.kind == "spell"
+end
+
+local function EntriesEqual(a, b)
+    return a and b and a.kind == b.kind and a.id == b.id
+end
+
+local function GetSpellNameByID(spellID)
+    if C_Spell and C_Spell.GetSpellName then
+        return C_Spell.GetSpellName(spellID)
+    end
+    if GetSpellInfo then
+        local name = GetSpellInfo(spellID)
+        return name
+    end
+    return nil
+end
+
+local function IsPassiveSpellID(spellID)
+    if C_Spell and C_Spell.IsSpellPassive then
+        return C_Spell.IsSpellPassive(spellID)
+    end
+    if IsPassiveSpell then
+        return IsPassiveSpell(spellID)
+    end
+    return false
+end
+
+local function IsRacialSkillLineName(name)
+    if not name or name == "" then
+        return false
+    end
+    local racialAbilities = _G and _G.RACIAL_ABILITIES or nil
+    if racialAbilities and name == racialAbilities then
+        return true
+    end
+    if name == RACIAL_NAME_FALLBACK then
+        return true
+    end
+    if name:lower():find(RACIAL_NAME_FALLBACK:lower(), 1, true) then
+        return true
+    end
+    return false
+end
+
+local function IsGeneralSkillLineName(name)
+    if not name or name == "" then
+        return false
+    end
+    local generalLabel = _G and _G.GENERAL or nil
+    if generalLabel and name == generalLabel then
+        return true
+    end
+    local generalTab = _G and _G.SPELLBOOK_GENERAL_TAB or nil
+    if generalTab and name == generalTab then
+        return true
+    end
+    if name == GENERAL_NAME_FALLBACK then
+        return true
+    end
+    if name:lower():find(GENERAL_NAME_FALLBACK:lower(), 1, true) then
+        return true
+    end
+    return false
+end
+
+local function IsRacialOrGeneralSkillLineName(name)
+    return IsRacialSkillLineName(name) or IsGeneralSkillLineName(name)
+end
+
+local function GetRacialSpellIDsFromSpellBook()
+    if racialSpellCache and not racialSpellCacheDirty then
+        return racialSpellCache
+    end
+
+    local ids = {}
+    if not C_SpellBook or not C_SpellBook.GetNumSpellBookSkillLines or not C_SpellBook.GetSpellBookSkillLineInfo then
+        racialSpellCache = ids
+        racialSpellCacheDirty = false
+        return ids
+    end
+
+    local spellBank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or nil
+
+    local okNum, numLines = pcall(C_SpellBook.GetNumSpellBookSkillLines, spellBank)
+    if not okNum then
+        okNum, numLines = pcall(C_SpellBook.GetNumSpellBookSkillLines)
+    end
+    if not okNum or type(numLines) ~= "number" then
+        racialSpellCache = ids
+        racialSpellCacheDirty = false
+        return ids
+    end
+
+    local function GetSkillLineInfo(index)
+        local ok, info = pcall(C_SpellBook.GetSpellBookSkillLineInfo, index, spellBank)
+        if ok and info then
+            return info
+        end
+        ok, info = pcall(C_SpellBook.GetSpellBookSkillLineInfo, index)
+        if ok and info then
+            return info
+        end
+        return nil
+    end
+
+    local function GetSpellBookItemInfo(index)
+        local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, spellBank, index)
+        if ok and info then
+            return info
+        end
+        ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, index, spellBank)
+        if ok and info then
+            return info
+        end
+        ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, index)
+        if ok and info then
+            return info
+        end
+        return nil
+    end
+
+    for skillLineIndex = 1, numLines do
+        local info = GetSkillLineInfo(skillLineIndex)
+        if info and IsRacialOrGeneralSkillLineName(info.name) then
+            local offset = info.itemIndexOffset or info.itemIndexOffsetFromParent or 0
+            local count = info.numSpellBookItems or info.numSlots or 0
+            for slot = 1, count do
+                local spellBookIndex = offset + slot
+                local itemInfo = GetSpellBookItemInfo(spellBookIndex)
+                if itemInfo then
+                    local spellID = itemInfo.spellID or itemInfo.actionID
+                    local isPassive = itemInfo.isPassive
+                    local itemType = itemInfo.itemType or itemInfo.spellBookItemType
+                    local isSpellItem = not itemType
+                    if Enum and Enum.SpellBookItemType and itemType ~= nil then
+                        isSpellItem = itemType == Enum.SpellBookItemType.Spell
+                    end
+                    if spellID and isSpellItem and not (isPassive or IsPassiveSpellID(spellID)) then
+                        ids[spellID] = true
+                    end
+                end
+            end
+        end
+    end
+
+    racialSpellCache = ids
+    racialSpellCacheDirty = false
+    return ids
+end
+
+local function MigrateLegacyNegativeEntries()
+    if didMigrateLegacyEntries then
+        return
+    end
+    didMigrateLegacyEntries = true
+
+    local db = DB.GetDB()
+    if not db or type(db.itemSettings) ~= "table" then
+        return
+    end
+
+    db.spellItemSettings = db.spellItemSettings or {}
+    local toMove = {}
+    for itemID in pairs(db.itemSettings) do
+        if type(itemID) == "number" and itemID < 0 then
+            table.insert(toMove, itemID)
+        end
+    end
+
+    for _, itemID in ipairs(toMove) do
+        local spellID = -itemID
+        if db.spellItemSettings[spellID] == nil then
+            db.spellItemSettings[spellID] = db.itemSettings[itemID]
+        end
+        db.itemSettings[itemID] = nil
+    end
+end
+
+function ItemsData:InvalidateRacialSpellCache()
+    racialSpellCacheDirty = true
+end
 
 function ItemsData:GetItemNameByID(itemID)
     if C_Item and C_Item.GetItemNameByID then
@@ -23,18 +220,39 @@ function ItemsData:GetItemNameByID(itemID)
     return name
 end
 
-local function ItemSortKey(itemID)
-    local name = ItemsData:GetItemNameByID(itemID)
+function ItemsData:GetEntryName(kind, id)
+    if kind == "spell" then
+        return GetSpellNameByID(id)
+    end
+    return self:GetItemNameByID(id)
+end
+
+local function GetEntrySettings(entry)
+    if IsSpellEntry(entry) then
+        return DB.GetSpellItemSettings(entry.id)
+    end
+    return DB.GetItemSettings(entry.id)
+end
+
+local function EnsureEntrySettings(entry)
+    if IsSpellEntry(entry) then
+        return DB.EnsureSpellItemSettings(entry.id)
+    end
+    return DB.EnsureItemSettings(entry.id)
+end
+
+local function EntrySortKey(entry)
+    local name = ItemsData:GetEntryName(entry.kind, entry.id)
     if not name or name == "" then
-        return tostring(itemID)
+        return tostring(entry.id)
     end
     return name:lower()
 end
 
-local function SortItemIDs(items)
-    table.sort(items, function(a, b)
-        local aOrder = DB.GetItemSettings(a) and DB.GetItemSettings(a).order or nil
-        local bOrder = DB.GetItemSettings(b) and DB.GetItemSettings(b).order or nil
+local function SortEntries(entries)
+    table.sort(entries, function(a, b)
+        local aOrder = GetEntrySettings(a) and GetEntrySettings(a).order or nil
+        local bOrder = GetEntrySettings(b) and GetEntrySettings(b).order or nil
         if aOrder ~= nil and bOrder ~= nil and aOrder ~= bOrder then
             return aOrder < bOrder
         elseif aOrder ~= nil and bOrder == nil then
@@ -42,76 +260,96 @@ local function SortItemIDs(items)
         elseif aOrder == nil and bOrder ~= nil then
             return false
         end
-        local aName = ItemSortKey(a)
-        local bName = ItemSortKey(b)
+        local aName = EntrySortKey(a)
+        local bName = EntrySortKey(b)
         if aName ~= bName then
             return aName < bName
         end
-        return a < b
+        if a.kind ~= b.kind then
+            return a.kind < b.kind
+        end
+        return a.id < b.id
     end)
 end
 
-local function GetItemOrder(itemID)
-    local settings = DB.GetItemSettings(itemID)
+local function GetEntryOrder(entry)
+    local settings = GetEntrySettings(entry)
     return settings and settings.order or nil
 end
 
-local function SetItemOrder(itemID, order)
-    local settings = DB.EnsureItemSettings(itemID)
+local function SetEntryOrder(entry, order)
+    local settings = EnsureEntrySettings(entry)
     settings.order = order
 end
 
-local function EnsureOrderForIDs(ids)
+local function EnsureOrderForEntries(entries)
     local maxOrder = 0
-    for _, itemID in ipairs(ids) do
-        local order = GetItemOrder(itemID)
+    for _, entry in ipairs(entries) do
+        local order = GetEntryOrder(entry)
         if order and order > maxOrder then
             maxOrder = order
         end
     end
 
-    for _, itemID in ipairs(ids) do
-        if GetItemOrder(itemID) == nil then
+    for _, entry in ipairs(entries) do
+        if GetEntryOrder(entry) == nil then
             maxOrder = maxOrder + 1
-            SetItemOrder(itemID, maxOrder)
+            SetEntryOrder(entry, maxOrder)
         end
     end
 end
 
-local function ReassignOrders(ids)
-    for index, itemID in ipairs(ids) do
-        SetItemOrder(itemID, index)
+local function ReassignOrders(entries)
+    for index, entry in ipairs(entries) do
+        SetEntryOrder(entry, index)
     end
 end
 
-function ItemsData:InsertItemAt(state, itemID, targetItemID, insertBefore)
-    itemID = tonumber(itemID) or itemID
-    targetItemID = tonumber(targetItemID) or targetItemID
-    local ids = self:GetItemIDsByState(state)
+function ItemsData:InsertItemAt(state, entry, targetEntry, insertBefore)
+    if not entry then
+        return
+    end
+
+    local entries = self:GetEntriesByState(state)
     local existingIndex = nil
-    for index, id in ipairs(ids) do
-        if id == itemID then
+    for index, candidate in ipairs(entries) do
+        if EntriesEqual(candidate, entry) then
             existingIndex = index
             break
         end
     end
 
     if existingIndex then
-        table.remove(ids, existingIndex)
+        table.remove(entries, existingIndex)
     end
 
-    local insertIndex = #ids + 1
-    if targetItemID then
-        for index, id in ipairs(ids) do
-            if id == targetItemID then
+    local insertIndex = #entries + 1
+    if targetEntry then
+        for index, candidate in ipairs(entries) do
+            if EntriesEqual(candidate, targetEntry) then
                 insertIndex = insertBefore and index or (index + 1)
                 break
             end
         end
     end
 
-    table.insert(ids, insertIndex, itemID)
-    ReassignOrders(ids)
+    table.insert(entries, insertIndex, MakeEntry(entry.kind, entry.id))
+    ReassignOrders(entries)
+end
+
+function ItemsData:GetEntryState(kind, id)
+    if kind == "spell" then
+        return DB.GetSpellItemState(id)
+    end
+    return DB.GetItemState(id)
+end
+
+function ItemsData:SetEntryState(kind, id, state)
+    if kind == "spell" then
+        DB.SetSpellItemState(id, state)
+    else
+        DB.SetItemState(id, state)
+    end
 end
 
 local function IsTrackableItem(itemID)
@@ -126,7 +364,10 @@ local function IsTrackableItem(itemID)
 end
 
 function ItemsData:ScanOwnedItems()
-    local owned = {}
+    local owned = {
+        items = {},
+        spells = {}
+    }
 
     if C_Container and NUM_BAG_SLOTS then
         for bag = 0, NUM_BAG_SLOTS do
@@ -134,7 +375,7 @@ function ItemsData:ScanOwnedItems()
             for slot = 1, slots do
                 local itemID = C_Container.GetContainerItemID(bag, slot)
                 if IsTrackableItem(itemID) and not (C_Item.IsEquippableItem and C_Item.IsEquippableItem(itemID)) then
-                    owned[itemID] = true
+                    owned.items[itemID] = true
                 end
             end
         end
@@ -145,53 +386,109 @@ function ItemsData:ScanOwnedItems()
         if location and C_Item.DoesItemExist(location) then
             local itemID = C_Item.GetItemID(location)
             if IsTrackableItem(itemID) then
-                owned[itemID] = true
+                owned.items[itemID] = true
             end
         end
+    end
+
+    local racialSpells = GetRacialSpellIDsFromSpellBook()
+    for spellID in pairs(racialSpells) do
+        owned.spells[spellID] = true
     end
 
     return owned
 end
 
 function ItemsData:EnsureTrackedItems(owned)
-    for itemID in pairs(owned) do
+    MigrateLegacyNegativeEntries()
+
+    local ownedItems = owned and owned.items or {}
+    local ownedSpells = owned and owned.spells or {}
+    local lastItems = lastOwnedItems.items or {}
+    local lastSpells = lastOwnedItems.spells or {}
+
+    for itemID in pairs(ownedItems) do
         local state = DB.GetItemState(itemID)
         if state == nil then
             DB.SetItemState(itemID, ITEM_STATE_HIDDEN)
         elseif state == ITEM_STATE_REMOVED then
-            if hasOwnedSnapshot and not lastOwnedItems[itemID] then
+            if hasOwnedSnapshot and not lastItems[itemID] then
                 DB.SetItemState(itemID, ITEM_STATE_HIDDEN)
             end
         end
     end
-    lastOwnedItems = owned
+
+    for spellID in pairs(ownedSpells) do
+        local state = DB.GetSpellItemState(spellID)
+        if state == nil then
+            DB.SetSpellItemState(spellID, ITEM_STATE_HIDDEN)
+        elseif state == ITEM_STATE_REMOVED then
+            if hasOwnedSnapshot and not lastSpells[spellID] then
+                DB.SetSpellItemState(spellID, ITEM_STATE_HIDDEN)
+            end
+        end
+    end
+
+    lastOwnedItems = owned or {
+        items = {},
+        spells = {}
+    }
     hasOwnedSnapshot = true
 end
 
-function ItemsData:GetItemIDsByState(state)
-    local ids = {}
+function ItemsData:GetEntriesByState(state)
+    local entries = {}
     local db = DB.GetDB()
+
     for itemID, settings in pairs(db.itemSettings or {}) do
         if settings.state == state then
-            table.insert(ids, itemID)
+            table.insert(entries, MakeEntry("item", itemID))
         end
     end
-    EnsureOrderForIDs(ids)
-    SortItemIDs(ids)
+
+    for spellID, settings in pairs(db.spellItemSettings or {}) do
+        if settings.state == state then
+            table.insert(entries, MakeEntry("spell", spellID))
+        end
+    end
+
+    EnsureOrderForEntries(entries)
+    SortEntries(entries)
+    return entries
+end
+
+function ItemsData:GetItemIDsByState(state)
+    local entries = self:GetEntriesByState(state)
+    local ids = {}
+    for _, entry in ipairs(entries) do
+        if entry.kind == "item" then
+            table.insert(ids, entry.id)
+        end
+    end
     return ids
 end
 
-function ItemsData:GetVisibleItemIDs(owned)
-    local ids = {}
+function ItemsData:GetVisibleEntries(owned)
+    local entries = {}
     local db = DB.GetDB()
+    local ownedItems = owned and owned.items or {}
+    local ownedSpells = owned and owned.spells or {}
+
     for itemID, settings in pairs(db.itemSettings or {}) do
-        if settings.state == ITEM_STATE_SHOWN and owned[itemID] then
-            table.insert(ids, itemID)
+        if settings.state == ITEM_STATE_SHOWN and ownedItems[itemID] then
+            table.insert(entries, MakeEntry("item", itemID))
         end
     end
-    EnsureOrderForIDs(ids)
-    SortItemIDs(ids)
-    return ids
+
+    for spellID, settings in pairs(db.spellItemSettings or {}) do
+        if settings.state == ITEM_STATE_SHOWN and ownedSpells[spellID] then
+            table.insert(entries, MakeEntry("spell", spellID))
+        end
+    end
+
+    EnsureOrderForEntries(entries)
+    SortEntries(entries)
+    return entries
 end
 
 ItemsData.ITEM_STATE_SHOWN = ITEM_STATE_SHOWN

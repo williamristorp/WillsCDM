@@ -16,6 +16,7 @@ local dbDefaults = {
     itemViewerEnabled = true,
     itemViewerLayouts = {},
     itemSettings = {},
+    spellItemSettings = {},
     spellSettings = {},
     showUnusable = false
 }
@@ -318,6 +319,12 @@ function DB.GetItemSettings(itemID)
     return db.itemSettings[itemID]
 end
 
+function DB.GetSpellItemSettings(spellID)
+    local db = DB.GetDB()
+    db.spellItemSettings = db.spellItemSettings or {}
+    return db.spellItemSettings[spellID]
+end
+
 function DB.EnsureItemSettings(itemID)
     local db = DB.GetDB()
     if db.itemSettings[itemID] == nil then
@@ -326,8 +333,22 @@ function DB.EnsureItemSettings(itemID)
     return db.itemSettings[itemID]
 end
 
+function DB.EnsureSpellItemSettings(spellID)
+    local db = DB.GetDB()
+    db.spellItemSettings = db.spellItemSettings or {}
+    if db.spellItemSettings[spellID] == nil then
+        db.spellItemSettings[spellID] = {}
+    end
+    return db.spellItemSettings[spellID]
+end
+
 function DB.GetItemState(itemID)
     local settings = DB.GetItemSettings(itemID)
+    return settings and settings.state or nil
+end
+
+function DB.GetSpellItemState(spellID)
+    local settings = DB.GetSpellItemSettings(spellID)
     return settings and settings.state or nil
 end
 
@@ -342,6 +363,18 @@ function DB.SetItemState(itemID, state)
     settings.state = state
 end
 
+function DB.SetSpellItemState(spellID, state)
+    local db = DB.GetDB()
+    db.spellItemSettings = db.spellItemSettings or {}
+    if state == nil then
+        db.spellItemSettings[spellID] = nil
+        return
+    end
+
+    local settings = DB.EnsureSpellItemSettings(spellID)
+    settings.state = state
+end
+
 function DB.GetShowingUnusable()
     local db = DB.GetDB()
     return db.showUnusable == true
@@ -350,7 +383,7 @@ end
 function DB.ToggleShowUnusable()
     local db = DB.GetDB()
     db.showUnusable = not DB.GetShowingUnusable()
-    if addon.ItemsPanel and addon.ItemsPanel.RefreshItemsPanel then
-        addon.ItemsPanel:RefreshItemsPanel()
+    if addon.MiscPanel and addon.MiscPanel.RefreshMiscPanel then
+        addon.MiscPanel:RefreshMiscPanel()
     end
 end

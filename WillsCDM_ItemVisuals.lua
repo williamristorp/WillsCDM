@@ -6,6 +6,28 @@ addon.ItemVisuals = ItemVisuals
 
 local FALLBACK_ICON = 134400
 
+local desaturationCurve = C_CurveUtil.CreateCurve()
+desaturationCurve:AddPoint(0, 0)
+desaturationCurve:AddPoint(0.001, 1)
+
+local function GetSpellTextureByID(spellID)
+    if C_Spell and C_Spell.GetSpellTexture then
+        return C_Spell.GetSpellTexture(spellID)
+    end
+    if GetSpellTexture then
+        return GetSpellTexture(spellID)
+    end
+    return nil
+end
+
+local function GetGlobalCooldownDuration()
+    if not C_Spell or not C_Spell.GetSpellCooldown then
+        return nil
+    end
+    local info = C_Spell.GetSpellCooldown(61304)
+    return info and info.duration or nil
+end
+
 function ItemVisuals:GetItemIcon(itemID)
     local icon = C_Item.GetItemIconByID(itemID)
     if not icon and GetItemIcon then
@@ -14,11 +36,26 @@ function ItemVisuals:GetItemIcon(itemID)
     return icon or FALLBACK_ICON
 end
 
+function ItemVisuals:GetEntryIcon(kind, id)
+    if kind == "spell" then
+        local icon = GetSpellTextureByID(id)
+        return icon or FALLBACK_ICON
+    end
+    return self:GetItemIcon(id)
+end
+
 function ItemVisuals:ApplyItemIcon(frame, itemID)
     if not frame or not frame.Icon then
         return
     end
     frame.Icon:SetTexture(self:GetItemIcon(itemID))
+end
+
+function ItemVisuals:ApplyEntryIcon(frame, kind, id)
+    if not frame or not frame.Icon then
+        return
+    end
+    frame.Icon:SetTexture(self:GetEntryIcon(kind, id))
 end
 
 function ItemVisuals:SetEmptySlot(frame)
@@ -48,6 +85,44 @@ function ItemVisuals:ClearCooldown(frame, desaturation)
     end
 end
 
+function ItemVisuals:UpdateSpellCooldown(frame, spellID)
+    if not frame or not frame.Cooldown then
+        return false
+    end
+
+    if frame.Cooldown.SetCooldownFromDurationObject and C_Spell and C_Spell.GetSpellCooldownDuration then
+        local cooldownDuration = C_Spell.GetSpellCooldownDuration(spellID)
+        if cooldownDuration then
+            frame.Cooldown:SetCooldownFromDurationObject(cooldownDuration)
+            if C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(spellID) then
+                local chargeDuration = C_Spell.GetSpellChargeDuration and C_Spell.GetSpellChargeDuration(spellID) or nil
+                if chargeDuration then
+                    frame.Cooldown:SetCooldownFromDurationObject(chargeDuration)
+                end
+            else
+                frame.Cooldown:SetDrawSwipe(true)
+            end
+            if frame.Icon then
+                local cooldown = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(spellID) or nil
+                local isOnGCD = cooldown and cooldown.isOnGCD
+                local desaturation = 0
+                if not isOnGCD then
+                    desaturation = cooldownDuration:EvaluateRemainingPercent(desaturationCurve)
+                end
+                frame.Icon:SetDesaturation(desaturation)
+            end
+            frame.cooldownStartTime = 0
+            frame.cooldownDuration = 0
+            return true
+        end
+    end
+
+    self:ClearCooldown(frame, 0)
+    frame.cooldownStartTime = 0
+    frame.cooldownDuration = 0
+    return false
+end
+
 function ItemVisuals:UpdateItemCooldown(frame, itemID)
     if not frame or not frame.Cooldown then
         return false
@@ -64,9 +139,21 @@ function ItemVisuals:UpdateItemCooldown(frame, itemID)
     frame.Cooldown:SetCooldown(startTime, duration)
     frame.Cooldown:SetDrawSwipe(true)
     if frame.Icon then
-        frame.Icon:SetDesaturation(1)
+        local desaturation = 1
+        local gcdDuration = GetGlobalCooldownDuration()
+        if gcdDuration and gcdDuration > 0 and duration <= gcdDuration then
+            desaturation = 0
+        end
+        frame.Icon:SetDesaturation(desaturation)
     end
     frame.cooldownStartTime = startTime or 0
     frame.cooldownDuration = duration or 0
     return true
+end
+
+function ItemVisuals:UpdateEntryCooldown(frame, kind, id)
+    if kind == "spell" then
+        return self:UpdateSpellCooldown(frame, id)
+    end
+    return self:UpdateItemCooldown(frame, id)
 end

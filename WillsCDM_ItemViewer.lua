@@ -14,13 +14,9 @@ local ItemViewerFrame = {}
 ItemViewerFrame.__index = ItemViewerFrame
 
 function ItemViewerFrame:New(parent)
-    local templateName = nil
-    local essential = _G["EssentialCooldownViewer"]
-    if essential and type(essential.itemTemplate) == "string" then
-        templateName = essential.itemTemplate
-    end
+    local templateName = _G["EssentialCooldownViewer"].itemTemplate
 
-    local frame = templateName and CreateFrame("Frame", nil, parent, templateName) or CreateFrame("Frame", nil, parent)
+    local frame = CreateFrame("Frame", nil, parent, templateName)
     local obj = setmetatable({
         frame = frame
     }, ItemViewerFrame)
@@ -58,20 +54,38 @@ function ItemViewerFrame:Hide()
     self.frame:Hide()
 end
 
-function ItemViewerFrame:UpdateItem(itemID)
+function ItemViewerFrame:UpdateEntry(entry)
     local frame = self.frame
-    if not itemID then
+    if not entry then
+        frame.WillsCDM_EntryKind = nil
+        frame.WillsCDM_EntryID = nil
+        frame.itemID = nil
         frame:Hide()
         return
     end
 
-    frame.itemID = itemID
-    if ItemVisuals then
-        ItemVisuals:ApplyItemIcon(frame, itemID)
-        ItemVisuals:UpdateItemCooldown(frame, itemID)
+    frame.WillsCDM_EntryKind = entry.kind
+    frame.WillsCDM_EntryID = entry.id
+    frame.itemID = entry.kind == "item" and entry.id or nil
+
+    if ItemVisuals and ItemVisuals.ApplyEntryIcon and ItemVisuals.UpdateEntryCooldown then
+        ItemVisuals:ApplyEntryIcon(frame, entry.kind, entry.id)
+        ItemVisuals:UpdateEntryCooldown(frame, entry.kind, entry.id)
     else
         if frame.Icon then
-            frame.Icon:SetTexture(C_Item.GetItemIconByID(itemID))
+            local icon = nil
+            if entry.kind == "spell" then
+                if C_Spell and C_Spell.GetSpellTexture then
+                    icon = C_Spell.GetSpellTexture(entry.id)
+                elseif GetSpellTexture then
+                    icon = GetSpellTexture(entry.id)
+                end
+            else
+                icon = C_Item.GetItemIconByID(entry.id)
+            end
+            if icon then
+                frame.Icon:SetTexture(icon)
+            end
         end
     end
 
@@ -256,8 +270,8 @@ function ItemViewer:RefreshItemViewerFrames()
 
     local owned = ItemsData:ScanOwnedItems()
     ItemsData:EnsureTrackedItems(owned)
-    local visibleIDs = ItemsData:GetVisibleItemIDs(owned)
-    local count = #visibleIDs
+    local visibleEntries = ItemsData:GetVisibleEntries(owned)
+    local count = #visibleEntries
     if itemViewer and itemViewer.WillsCDM_ForceShow and count == 0 then
         count = 1
     end
@@ -265,18 +279,18 @@ function ItemViewer:RefreshItemViewerFrames()
     self:EnsureItemViewerFrames(count)
 
     local db = DB.GetDB()
-    for i, itemID in ipairs(visibleIDs) do
+    for i, entry in ipairs(visibleEntries) do
         local frame = itemFrames[i].frame
         if frame.Cooldown then
             frame.Cooldown:SetSwipeColor(unpack(db.defaultCooldownSwipeColor))
             frame.Cooldown:SetDrawEdge(db.defaultAlwaysShowCooldownEdge == true)
         end
-        itemFrames[i]:UpdateItem(itemID)
+        itemFrames[i]:UpdateEntry(entry)
     end
 
-    if count > #visibleIDs then
-        for i = #visibleIDs + 1, count do
-            itemFrames[i]:UpdateItem(nil)
+    if count > #visibleEntries then
+        for i = #visibleEntries + 1, count do
+            itemFrames[i]:UpdateEntry(nil)
         end
     end
 
@@ -284,7 +298,7 @@ function ItemViewer:RefreshItemViewerFrames()
         self:UpdateItemsLayout(count)
     end
 
-    itemViewer.WillsCDM_HasItems = #visibleIDs > 0
+    itemViewer.WillsCDM_HasItems = #visibleEntries > 0
     itemViewer.WillsCDM_VisibleCount = count
     itemViewer:SetShown(ShouldShowItemViewer())
 end
@@ -307,7 +321,7 @@ function ItemViewer:InitializeItemsEditMode()
     end
 
     if LEM then
-        LEM:AddFrame(itemViewer, OnPositionChanged, DB.GetItemViewerLayout("Default"), "Item Cooldowns")
+        LEM:AddFrame(itemViewer, OnPositionChanged, DB.GetItemViewerLayout("Default"), "Misc Cooldowns")
         local selection = LEM.frameSelections and LEM.frameSelections[itemViewer] or nil
         if selection then
             selection:HookScript("OnDragStart", function()
