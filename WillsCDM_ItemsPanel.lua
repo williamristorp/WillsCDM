@@ -714,8 +714,50 @@ function ItemsPanel:RefreshItemsPanel(settingsFrame)
         enable:SetChecked(DB.GetItemViewerEnabled())
     end
 
+    local showUnusable = DB.GetShowingUnusable()
     local shownIDs = ItemsData:GetItemIDsByState(ITEM_STATE_SHOWN)
     local hiddenIDs = ItemsData:GetItemIDsByState(ITEM_STATE_HIDDEN)
+
+    if not showUnusable then
+        -- Filter out items the player does not own (same logic as icon desaturation)
+        local filteredShown = {}
+        for _, itemID in ipairs(shownIDs) do
+            if owned[itemID] then
+                table.insert(filteredShown, itemID)
+            end
+        end
+        local filteredHidden = {}
+        for _, itemID in ipairs(hiddenIDs) do
+            if owned[itemID] then
+                table.insert(filteredHidden, itemID)
+            end
+        end
+        shownIDs = filteredShown
+        hiddenIDs = filteredHidden
+    end
+
+    -- Filter by search term
+    local searchTerm = itemsPanel.WillsCDM_SearchTerm or ""
+    if searchTerm ~= "" then
+        local function matchesSearch(itemID)
+            local name = ItemsData:GetItemNameByID(itemID)
+            return name and name:lower():find(searchTerm:lower(), 1, true)
+        end
+        local filteredShown = {}
+        for _, itemID in ipairs(shownIDs) do
+            if matchesSearch(itemID) then
+                table.insert(filteredShown, itemID)
+            end
+        end
+        local filteredHidden = {}
+        for _, itemID in ipairs(hiddenIDs) do
+            if matchesSearch(itemID) then
+                table.insert(filteredHidden, itemID)
+            end
+        end
+        shownIDs = filteredShown
+        hiddenIDs = filteredHidden
+    end
 
     local categories = itemsPanel.WillsCDM_Categories
     if not categories then
@@ -841,6 +883,50 @@ function ItemsPanel:EnsureItemsSettingsTab(settingsFrame)
 
     spellsTab.WillsCDM_IsTabButton = true
     aurasTab.WillsCDM_IsTabButton = true
+
+    -- Create a dedicated search box for the ItemsPanel, matching Blizzard's CooldownViewerSettings XML
+    if not itemsPanel.WillsCDM_SearchBox then
+        local searchBox = CreateFrame("EditBox", nil, itemsPanel, "SearchBoxTemplate")
+        searchBox:SetSize(290, 30)
+        searchBox:SetPoint("TOPLEFT", itemsPanel, "TOPLEFT", 72, -30)
+        searchBox.Instructions:SetText("Enter search text")
+        searchBox:SetScript("OnTextChanged", function(self)
+            self.Instructions:SetShown(self:GetText() == "")
+            itemsPanel.WillsCDM_SearchTerm = self:GetText()
+            ItemsPanel:RefreshItemsPanel(settingsFrame)
+        end)
+        searchBox:Hide()
+        itemsPanel.WillsCDM_SearchBox = searchBox
+    end
+
+    -- Create a dedicated settings dropdown for the ItemsPanel, matching Blizzard's CooldownViewerSettings XML
+    if not itemsPanel.WillsCDM_SettingsDropdown then
+        local settingsDropdown = CreateFrame("DropdownButton", nil, itemsPanel, "UIPanelIconDropdownButtonTemplate")
+        settingsDropdown:SetPoint("LEFT", itemsPanel.WillsCDM_SearchBox, "RIGHT", 5, 0)
+        settingsDropdown:SetupMenu(function(owner, rootDescription)
+            rootDescription:CreateCheckbox("Show Unusable", DB.GetShowingUnusable, DB.ToggleShowUnusable)
+        end)
+        settingsDropdown:Hide()
+        itemsPanel.WillsCDM_SettingsDropdown = settingsDropdown
+    end
+
+    -- Show/hide search/settings only when ItemsPanel is shown
+    itemsPanel:HookScript("OnShow", function(self)
+        if self.WillsCDM_SearchBox then
+            self.WillsCDM_SearchBox:Show()
+        end
+        if self.WillsCDM_SettingsDropdown then
+            self.WillsCDM_SettingsDropdown:Show()
+        end
+    end)
+    itemsPanel:HookScript("OnHide", function(self)
+        if self.WillsCDM_SearchBox then
+            self.WillsCDM_SearchBox:Hide()
+        end
+        if self.WillsCDM_SettingsDropdown then
+            self.WillsCDM_SettingsDropdown:Hide()
+        end
+    end)
 
     -- Do not parent the itemsTab to settingsFrame! Doing so will add it to its .TabButtons list and will taint everything inside CooldownViewer as a result.
     local itemsTab = CreateFrame("Button", "$parent.ItemsTab", UIParent, "CooldownViewerSettingsTabTemplate")

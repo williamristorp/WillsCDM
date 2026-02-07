@@ -15,7 +15,8 @@ local dbDefaults = {
     itemViewerEnabled = true,
     itemViewerLayouts = {},
     itemSettings = {},
-    spellSettings = {}
+    spellSettings = {},
+    showUnusable = false
 }
 
 local function ApplyDefaultsToTable(tbl, defaults)
@@ -311,4 +312,17 @@ function DB.SetItemState(itemID, state)
 
     local settings = DB.EnsureItemSettings(itemID)
     settings.state = state
+end
+
+function DB.GetShowingUnusable()
+    local db = DB.GetDB()
+    return db.showUnusable == true
+end
+
+function DB.ToggleShowUnusable()
+    local db = DB.GetDB()
+    db.showUnusable = not DB.GetShowingUnusable()
+    if addon.ItemsPanel and addon.ItemsPanel.RefreshItemsPanel then
+        addon.ItemsPanel:RefreshItemsPanel()
+    end
 end
