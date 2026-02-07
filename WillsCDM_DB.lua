@@ -12,12 +12,40 @@ local dbDefaults = {
     defaultCooldownSwipeColor = {unpack(DB.DEFAULT_COOLDOWN_SWIPE_COLOR)},
     defaultAuraSwipeColor = {unpack(DB.DEFAULT_AURA_SWIPE_COLOR)},
     defaultShowAuras = true,
+    defaultAuraSwipeReversed = false,
     itemViewerEnabled = true,
     itemViewerLayouts = {},
     itemSettings = {},
     spellSettings = {},
     showUnusable = false
 }
+function DB.GetAuraSwipeReversed(spellID)
+    local db = DB.GetDB()
+    local settings = DB.GetSpellSettings(spellID)
+    if settings and settings.auraSwipeReversed ~= nil then
+        return settings.auraSwipeReversed
+    end
+    return db.defaultAuraSwipeReversed
+end
+
+function DB.SetAuraSwipeReversed(spellID, value)
+    local db = DB.GetDB()
+    if value == db.defaultAuraSwipeReversed then
+        local settings = DB.GetSpellSettings(spellID)
+        if settings ~= nil then
+            settings.auraSwipeReversed = nil
+            DB.CleanupSpellSettings(spellID)
+        end
+        return
+    end
+    local settings = DB.EnsureSpellSettings(spellID)
+    settings.auraSwipeReversed = value
+end
+
+function DB.ToggleAuraSwipeReversed(spellID)
+    local current = DB.GetAuraSwipeReversed(spellID)
+    DB.SetAuraSwipeReversed(spellID, not current)
+end
 
 local function ApplyDefaultsToTable(tbl, defaults)
     for k, v in pairs(defaults) do

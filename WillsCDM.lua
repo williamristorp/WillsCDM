@@ -110,6 +110,7 @@ local function ApplyCooldownSettings(cdmFrame)
 
     if DB.GetShowAuras(spellID) and cdmFrame.wasSetFromAura then
         cdmFrame.Cooldown:SetSwipeColor(unpack(DB.GetAuraSwipeColor(spellID)))
+        cdmFrame.Cooldown:SetReverse(DB.GetAuraSwipeReversed(spellID))
         return
     end
 
@@ -167,6 +168,7 @@ local function HookBuffIconFrame(cdmFrame)
         end
 
         cdmFrame.Cooldown:SetSwipeColor(unpack(DB.GetAuraSwipeColor(spellID)))
+        cdmFrame.Cooldown:SetReverse(DB.GetAuraSwipeReversed(spellID))
         cdmFrame.Cooldown:SetDrawEdge(DB.GetAlwaysShowCooldownEdge(spellID))
     end)
 
@@ -407,6 +409,7 @@ local function Run()
     end)
 
     Menu.ModifyMenu("MENU_COOLDOWN_SETTINGS_ITEM", function(owner, rootDescription, contextData)
+
         local cooldownID = owner.cooldownID
         local cdInfo = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
         local category = cdInfo.category
@@ -442,6 +445,13 @@ local function Run()
         end, function(color)
             DB.SetAuraSwipeColor(spellID, color)
         end, RefreshCooldownManagerFrames)
+
+        rootDescription:CreateCheckbox("Reverse Aura Swipe", function()
+            return DB.GetAuraSwipeReversed(spellID)
+        end, function()
+            DB.ToggleAuraSwipeReversed(spellID)
+            RefreshCooldownManagerFrames()
+        end)
 
         rootDescription:CreateButton("Reset to Defaults", function()
             local db = DB.GetDB()
@@ -485,6 +495,14 @@ local function Run()
             CopyColorInto(db.defaultAuraSwipeColor, color)
         end, RefreshCooldownManagerFrames)
 
+        rootDescription:CreateCheckbox("Default Reverse Aura Swipe", function()
+            local db = DB.GetDB()
+            return db.defaultAuraSwipeReversed
+        end, function()
+            local db = DB.GetDB()
+            db.defaultAuraSwipeReversed = not db.defaultAuraSwipeReversed
+        end)
+
         rootDescription:CreateDivider()
 
         rootDescription:CreateButton("Apply Defaults To All Spells", function()
@@ -503,6 +521,7 @@ local function Run()
                         db.spellSettings[spellID].cooldownSwipeColor = nil
                         db.spellSettings[spellID].alwaysShowCooldownEdge = nil
                         db.spellSettings[spellID].showAuras = nil
+                        db.spellSettings[spellID].auraSwipeReversed = nil
                         DB.CleanupSpellSettings(spellID)
                     end
                     RefreshCooldownManagerFrames()
