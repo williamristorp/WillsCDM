@@ -11,6 +11,9 @@ addon.MiscPanel = MiscPanel
 local ITEM_STATE_SHOWN = ItemsData.ITEM_STATE_SHOWN
 local ITEM_STATE_HIDDEN = ItemsData.ITEM_STATE_HIDDEN
 local ITEM_STATE_REMOVED = ItemsData.ITEM_STATE_REMOVED
+addon.ITEM_STATE_SHOWN = ITEM_STATE_SHOWN
+addon.ITEM_STATE_HIDDEN = ITEM_STATE_HIDDEN
+addon.ITEM_STATE_REMOVED = ITEM_STATE_REMOVED
 
 local reorderSourceItem = nil
 local reorderTarget = nil
@@ -508,7 +511,7 @@ local function ResetCategoryButtons(category)
 
     local container = category.Container
     if container then
-        for _, child in ipairs({container:GetChildren()}) do
+        for _, child in ipairs({ container:GetChildren() }) do
             if child.layoutIndex ~= nil then
                 child.layoutIndex = nil
             end
@@ -628,7 +631,7 @@ function MiscPanel:CreateItemCategory(parent, title, state)
                 if not self.Header.WillsCDM_TitlePoints then
                     self.Header.WillsCDM_TitlePoints = {}
                     for i = 1, title:GetNumPoints() do
-                        self.Header.WillsCDM_TitlePoints[i] = {title:GetPoint(i)}
+                        self.Header.WillsCDM_TitlePoints[i] = { title:GetPoint(i) }
                     end
                 end
                 if self.Header.WillsCDM_TitlePoints and #self.Header.WillsCDM_TitlePoints > 0 then
@@ -750,7 +753,8 @@ function MiscPanel:RefreshMiscPanel(settingsFrame)
     local owned = ItemsData:ScanOwnedItems()
     ItemsData:EnsureTrackedItems(owned)
 
-    local miscPanel = settingsFrame.WillsCDM_MiscPanel
+    local frame = settingsFrame or _G["CooldownViewerSettings"]
+    local miscPanel = frame.WillsCDM_MiscPanel
     if not miscPanel then
         return
     end
@@ -860,7 +864,7 @@ local function ShowMiscPanel(settingsFrame)
     end
 
     local hidden = {}
-    for _, child in ipairs({settingsFrame:GetChildren()}) do
+    for _, child in ipairs({ settingsFrame:GetChildren() }) do
         if child:IsShown() and child ~= miscPanel and not IsTabButton(child) then
             child:Hide()
             table.insert(hidden, child)
@@ -870,10 +874,6 @@ local function ShowMiscPanel(settingsFrame)
     settingsFrame.WillsCDM_HiddenChildren = hidden
     MiscPanel:RefreshMiscPanel(settingsFrame)
     miscPanel:Show()
-end
-
-function MiscPanel:New()
-    
 end
 
 function MiscPanel:EnsureMiscSettingsTab(settingsFrame)
@@ -922,7 +922,7 @@ function MiscPanel:EnsureMiscSettingsTab(settingsFrame)
     local shownCategory = self:CreateItemCategory(scrollChild, "Misc Cooldowns", ITEM_STATE_SHOWN)
     local hiddenCategory = self:CreateItemCategory(scrollChild, "Not Displayed", ITEM_STATE_HIDDEN)
 
-    miscPanel.WillsCDM_Categories = {shownCategory, hiddenCategory}
+    miscPanel.WillsCDM_Categories = { shownCategory, hiddenCategory }
     miscPanel.WillsCDM_ScrollChild = scrollChild
     miscPanel.WillsCDM_ScrollFrame = scrollFrame
     local spellsTab = settingsFrame.SpellsTab
@@ -955,6 +955,13 @@ function MiscPanel:EnsureMiscSettingsTab(settingsFrame)
         end)
         settingsDropdown:Hide()
         miscPanel.WillsCDM_SettingsDropdown = settingsDropdown
+    end
+
+    if not miscPanel.WillsCDM_TrackTip then
+        local trackTip = miscPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        trackTip:SetPoint("BOTTOMLEFT", miscPanel, "BOTTOMLEFT", 10, 10)
+        trackTip:SetText("Tip: Use `/wcdm track` to re-add an item or spell you stopped tracking.")
+        miscPanel.WillsCDM_TrackTip = trackTip
     end
 
     -- Show/hide search/settings only when MiscPanel is shown

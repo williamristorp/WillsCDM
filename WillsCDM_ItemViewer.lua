@@ -331,7 +331,7 @@ function ItemViewer:InitializeItemsEditMode()
                 itemViewer.WillsCDM_IsMoving = false
             end)
         end
-        LEM:AddFrameSettings(itemViewer, {{
+        LEM:AddFrameSettings(itemViewer, { {
             name = "Icon Size",
             kind = LEM.SettingType.Slider,
             default = 1,
@@ -370,7 +370,7 @@ function ItemViewer:InitializeItemsEditMode()
             name = "Growth Direction",
             kind = LEM.SettingType.Dropdown,
             default = "center",
-            values = {{
+            values = { {
                 text = "Left",
                 value = "left"
             }, {
@@ -379,7 +379,7 @@ function ItemViewer:InitializeItemsEditMode()
             }, {
                 text = "Right",
                 value = "right"
-            }},
+            } },
             get = function(layoutName)
                 local layout = DB.GetItemViewerLayout(layoutName)
                 return GetGrowthDirection(layout)
@@ -388,7 +388,7 @@ function ItemViewer:InitializeItemsEditMode()
                 self:SetGrowthDirection(layoutName, value)
                 self:UpdateItemsLayout(itemViewer and itemViewer.WillsCDM_VisibleCount or #itemFrames)
             end
-        }})
+        } })
 
         LEM:RegisterCallback("layout", function(layoutName)
             self:ApplyItemViewerLayout(layoutName)

@@ -12,7 +12,7 @@ local function GetCooldownFrames()
 
     local essentialViewer = _G["EssentialCooldownViewer"]
     if essentialViewer then
-        for _, child in ipairs({essentialViewer:GetChildren()}) do
+        for _, child in ipairs({ essentialViewer:GetChildren() }) do
             if child.Cooldown then
                 table.insert(frames, child)
             end
@@ -21,7 +21,7 @@ local function GetCooldownFrames()
 
     local utilityViewer = _G["UtilityCooldownViewer"]
     if utilityViewer then
-        for _, child in ipairs({utilityViewer:GetChildren()}) do
+        for _, child in ipairs({ utilityViewer:GetChildren() }) do
             if child.Cooldown then
                 table.insert(frames, child)
             end
@@ -38,7 +38,7 @@ local function GetBuffIconFrames()
 
     local buffViewer = _G["BuffIconCooldownViewer"]
     if buffViewer then
-        for _, child in ipairs({buffViewer:GetChildren()}) do
+        for _, child in ipairs({ buffViewer:GetChildren() }) do
             if child.Cooldown then
                 table.insert(frames, child)
             end
@@ -86,7 +86,7 @@ local function ApplyIconSettings(cdmFrame)
             else
                 cdmFrame.Cooldown:SetDrawSwipe(spellCharges.currentCharges == 0)
                 cdmFrame.Cooldown:SetDrawEdge(spellCharges.currentCharges < spellCharges.maxCharges or
-                                                  DB.GetAlwaysShowCooldownEdge(spellID))
+                    DB.GetAlwaysShowCooldownEdge(spellID))
             end
         else
             cdmFrame.Cooldown:SetDrawSwipe(true)
@@ -115,6 +115,7 @@ local function ApplyCooldownSettings(cdmFrame)
         return
     end
 
+    cdmFrame.Cooldown:SetReverse(false)
     cdmFrame.Cooldown:SetSwipeColor(unpack(DB.GetCooldownSwipeColor(spellID)))
 
     local cooldownDuration = C_Spell.GetSpellCooldownDuration(spellID)
@@ -317,12 +318,12 @@ local function AddColorSwatch(rootDescription, label, getColorTable, setColorTab
     end
 
     rootDescription:CreateColorSwatch(label, function()
-        local current = getColorTable and getColorTable() or {0, 0, 0, 1}
-        local colorCopy = {unpack(current)}
+        local current = getColorTable and getColorTable() or { 0, 0, 0, 1 }
+        local colorCopy = { unpack(current) }
         ColorPickerFrame:SetupColorPickerAndShow(BuildColorPickerInfo(colorCopy, function()
             Commit(colorCopy)
         end))
-    end, GetColorSwatchDisplayInfo(getColorTable and getColorTable() or {0, 0, 0, 1}))
+    end, GetColorSwatchDisplayInfo(getColorTable and getColorTable() or { 0, 0, 0, 1 }))
 end
 
 local function CopyColorInto(dst, src)
@@ -482,8 +483,8 @@ local function Run()
                 OnAccept = function()
                     local db = DB.GetDB()
                     db.defaultAlwaysShowCooldownEdge = false
-                    db.defaultAuraSwipeColor = {unpack(DB.DEFAULT_AURA_SWIPE_COLOR)}
-                    db.defaultCooldownSwipeColor = {unpack(DB.DEFAULT_COOLDOWN_SWIPE_COLOR)}
+                    db.defaultAuraSwipeColor = { unpack(DB.DEFAULT_AURA_SWIPE_COLOR) }
+                    db.defaultCooldownSwipeColor = { unpack(DB.DEFAULT_COOLDOWN_SWIPE_COLOR) }
                     db.defaultShowAuras = true
                     RefreshCooldownManagerFrames()
                 end
@@ -510,7 +511,6 @@ local function Run()
         end
         MiscPanel:RefreshMiscPanel()
     end)
-
 end
 
 local f = CreateFrame("Frame")
@@ -601,7 +601,7 @@ SlashCmdList["WCDM"] = function(msg, editBox)
 
         local shownState = itemsData and itemsData.ITEM_STATE_SHOWN or "shown"
         local shownEntries = (itemsData and itemsData.GetEntriesByState) and itemsData:GetEntriesByState(shownState) or
-                                 {}
+            {}
 
         local maxOrder = 0
         for _, entry in ipairs(shownEntries) do
@@ -769,8 +769,18 @@ SlashCmdList["WCDM"] = function(msg, editBox)
                 return
             end
 
-            print("Usage: /wcdm reset <spellID>")
+            print("Usage: /wcdm reset {<spellID>,all}")
             return
+        elseif cmd == "track" then
+            local kind, idStr = SplitFirst(rest)
+            local id = tonumber(idStr)
+            if not kind or not id then
+                print("Usage: /wcdm track {spell|item} <id>")
+                return
+            end
+            ItemsData:SetEntryState(kind, id, addon.ITEM_STATE_HIDDEN)
+            MiscPanel:RefreshMiscPanel()
+            ItemViewer:RefreshItemViewerFrames()
         elseif cmd == "help" or cmd == "--help" then
             PrintHelp()
             return
