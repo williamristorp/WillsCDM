@@ -4,13 +4,13 @@ addon = addon or {}
 addon.DB = addon.DB or {}
 local DB = addon.DB
 
-DB.DEFAULT_COOLDOWN_SWIPE_COLOR = {0, 0, 0, 0.7}
-DB.DEFAULT_AURA_SWIPE_COLOR = {1, 0.95, 0.57, 0.7}
+DB.DEFAULT_COOLDOWN_SWIPE_COLOR = { 0, 0, 0, 0.7 }
+DB.DEFAULT_AURA_SWIPE_COLOR = { 1, 0.95, 0.57, 0.7 }
 
 local dbDefaults = {
     defaultAlwaysShowCooldownEdge = false,
-    defaultCooldownSwipeColor = {unpack(DB.DEFAULT_COOLDOWN_SWIPE_COLOR)},
-    defaultAuraSwipeColor = {unpack(DB.DEFAULT_AURA_SWIPE_COLOR)},
+    defaultCooldownSwipeColor = { unpack(DB.DEFAULT_COOLDOWN_SWIPE_COLOR) },
+    defaultAuraSwipeColor = { unpack(DB.DEFAULT_AURA_SWIPE_COLOR) },
     defaultShowAuras = true,
     defaultAuraSwipeReversed = false,
     itemViewerEnabled = true,
@@ -239,7 +239,7 @@ function DB.SetCooldownSwipeColor(spellID, colorTable)
 
     local settings = DB.EnsureSpellSettings(spellID)
     local r, g, b, a = unpack(colorTable)
-    settings.cooldownSwipeColor = {r, g, b, a}
+    settings.cooldownSwipeColor = { r, g, b, a }
 end
 
 function DB.SetAuraSwipeColor(spellID, colorTable)
@@ -255,7 +255,7 @@ function DB.SetAuraSwipeColor(spellID, colorTable)
 
     local settings = DB.EnsureSpellSettings(spellID)
     local r, g, b, a = unpack(colorTable)
-    settings.auraSwipeColor = {r, g, b, a}
+    settings.auraSwipeColor = { r, g, b, a }
 end
 
 function DB.InitializeDB()

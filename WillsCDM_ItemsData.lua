@@ -15,8 +15,6 @@ local ITEM_STATE_REMOVED = "removed"
 local RACIAL_NAME_FALLBACK = "Racial"
 local GENERAL_NAME_FALLBACK = "General"
 
-local lastOwnedItems = {}
-local hasOwnedSnapshot = false
 local racialSpellCache = nil
 local racialSpellCacheDirty = true
 local didMigrateLegacyEntries = false
@@ -404,17 +402,11 @@ function ItemsData:EnsureTrackedItems(owned)
 
     local ownedItems = owned and owned.items or {}
     local ownedSpells = owned and owned.spells or {}
-    local lastItems = lastOwnedItems.items or {}
-    local lastSpells = lastOwnedItems.spells or {}
 
     for itemID in pairs(ownedItems) do
         local state = DB.GetItemState(itemID)
         if state == nil then
             DB.SetItemState(itemID, ITEM_STATE_HIDDEN)
-        elseif state == ITEM_STATE_REMOVED then
-            if hasOwnedSnapshot and not lastItems[itemID] then
-                DB.SetItemState(itemID, ITEM_STATE_HIDDEN)
-            end
         end
     end
 
@@ -422,18 +414,8 @@ function ItemsData:EnsureTrackedItems(owned)
         local state = DB.GetSpellItemState(spellID)
         if state == nil then
             DB.SetSpellItemState(spellID, ITEM_STATE_HIDDEN)
-        elseif state == ITEM_STATE_REMOVED then
-            if hasOwnedSnapshot and not lastSpells[spellID] then
-                DB.SetSpellItemState(spellID, ITEM_STATE_HIDDEN)
-            end
         end
     end
-
-    lastOwnedItems = owned or {
-        items = {},
-        spells = {}
-    }
-    hasOwnedSnapshot = true
 end
 
 function ItemsData:GetEntriesByState(state)

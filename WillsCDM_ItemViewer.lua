@@ -59,35 +59,15 @@ function ItemViewerFrame:UpdateEntry(entry)
     if not entry then
         frame.WillsCDM_EntryKind = nil
         frame.WillsCDM_EntryID = nil
-        frame.itemID = nil
         frame:Hide()
         return
     end
 
     frame.WillsCDM_EntryKind = entry.kind
     frame.WillsCDM_EntryID = entry.id
-    frame.itemID = entry.kind == "item" and entry.id or nil
 
-    if ItemVisuals and ItemVisuals.ApplyEntryIcon and ItemVisuals.UpdateEntryCooldown then
-        ItemVisuals:ApplyEntryIcon(frame, entry.kind, entry.id)
-        ItemVisuals:UpdateEntryCooldown(frame, entry.kind, entry.id)
-    else
-        if frame.Icon then
-            local icon = nil
-            if entry.kind == "spell" then
-                if C_Spell and C_Spell.GetSpellTexture then
-                    icon = C_Spell.GetSpellTexture(entry.id)
-                elseif GetSpellTexture then
-                    icon = GetSpellTexture(entry.id)
-                end
-            else
-                icon = C_Item.GetItemIconByID(entry.id)
-            end
-            if icon then
-                frame.Icon:SetTexture(icon)
-            end
-        end
-    end
+    ItemVisuals:ApplyEntryIcon(frame, entry.kind, entry.id)
+    ItemVisuals:UpdateEntryCooldown(frame, entry.kind, entry.id)
 
     frame:Show()
 end
