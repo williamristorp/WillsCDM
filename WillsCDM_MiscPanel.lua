@@ -21,18 +21,9 @@ local reorderMarker = nil
 local reorderCursor = nil
 local reorderCursorFollow = false
 
-local function IsTabButton(child)
-    if not child then
-        return false
-    end
-    if child.WillsCDM_IsTabButton then
-        return true
-    end
-    local name = child:GetName()
-    return name and name:find("Tab") ~= nil
-end
-
 function MiscPanel:HideMiscPanel(settingsFrame)
+    settingsFrame.WillsCDM_ScrollFrame:Hide()
+    do return end
     if settingsFrame.WillsCDM_MiscPanel then
         settingsFrame.WillsCDM_MiscPanel:Hide()
     end
@@ -49,8 +40,7 @@ function MiscPanel:HideMiscPanel(settingsFrame)
 end
 
 local function GetMiscPanelFrame()
-    local settings = _G["CooldownViewerSettings"]
-    return settings and settings.WillsCDM_MiscPanel or nil
+    return _G["CooldownViewerSettings"]
 end
 
 local function GetEntryKindAndID(button)
@@ -311,7 +301,7 @@ local function BeginOrderChange(itemButton, eatNextGlobalMouseUp)
     PickupItemCursor(itemButton)
     EnsureReorderMarker()
 
-    local miscPanel = GetMiscPanelFrame()
+    local miscPanel = _G["CooldownViewerSettings"]
     if miscPanel then
         miscPanel:SetScript("OnUpdate", function()
             UpdateReorderMarker()
@@ -519,25 +509,6 @@ end
 function MiscPanel:LayoutCategory(category, entries, owned)
     ResetCategoryButtons(category)
 
-    local container = category.Container or category.Content
-    local headerHeight = category.Header:GetHeight()
-    local isCollapsed = category.IsCollapsed and category:IsCollapsed() or category.Collapsed
-    if isCollapsed then
-        if category.SetCollapsed then
-            category:SetCollapsed(true)
-        elseif container then
-            container:Hide()
-        end
-        category:SetHeight(headerHeight)
-        return
-    end
-
-    if category.SetCollapsed then
-        category:SetCollapsed(false)
-    elseif container then
-        container:Show()
-    end
-
     local size = 38
     local spacing = 8
 
@@ -555,18 +526,7 @@ function MiscPanel:LayoutCategory(category, entries, owned)
         emptyButton.layoutIndex = 1
         emptyButton:ClearAllPoints()
         emptyButton:SetSize(size, size)
-        if ItemVisuals then
-            ItemVisuals:SetEmptySlot(emptyButton)
-        else
-            if emptyButton.Icon then
-                emptyButton.Icon:SetTexture(nil)
-                emptyButton.Icon:SetAtlas("cdm-empty", true)
-                emptyButton.Icon:SetDesaturated(false)
-            end
-            if emptyButton.Cooldown then
-                CooldownFrame_Clear(emptyButton.Cooldown)
-            end
-        end
+        ItemVisuals:SetEmptySlot(emptyButton)
     else
         for index, entry in ipairs(entries) do
             local button = AcquireItemButton(category)
@@ -588,62 +548,23 @@ function MiscPanel:LayoutCategory(category, entries, owned)
         end
     end
 
-    if container and container.Layout then
-        container.childXPadding = spacing
-        container.childYPadding = spacing
-        container.isHorizontal = true
-        container.stride = 7
-        container.layoutFramesGoingRight = true
-        container.layoutFramesGoingUp = false
-        container.alwaysUpdateLayout = true
-        container:Layout()
-    end
-
-    local contentHeight = container and container:GetHeight() or 0
-    local totalHeight = nil
-    if category.Header and container then
-        local headerTop = category.Header:GetTop()
-        local containerBottom = container:GetBottom()
-        if headerTop and containerBottom then
-            totalHeight = headerTop - containerBottom
-        end
-    end
-    category:SetHeight(totalHeight or (headerHeight + 6 + contentHeight))
+    category.Container:Layout()
 end
 
 function MiscPanel:CreateItemCategory(parent, title, state)
     local categoryDisplay = CreateFrame("Frame", nil, parent, "CooldownViewerSettingsCategoryTemplate")
     categoryDisplay.state = state
-    categoryDisplay.Collapsed = false
     categoryDisplay.Header:SetHeaderText(title)
 
     function categoryDisplay:SetCollapsed(collapsed)
         self.Collapsed = collapsed and true or false
-        if self.Header and self.Header.UpdateCollapsedState then
-            self.Header:UpdateCollapsedState(self.Collapsed)
-        end
-        if self.Header then
-            local title = self.Header.TitleText or self.Header.Title
-            if title then
-                if not self.Header.WillsCDM_TitlePoints then
-                    self.Header.WillsCDM_TitlePoints = {}
-                    for i = 1, title:GetNumPoints() do
-                        self.Header.WillsCDM_TitlePoints[i] = { title:GetPoint(i) }
-                    end
-                end
-                if self.Header.WillsCDM_TitlePoints and #self.Header.WillsCDM_TitlePoints > 0 then
-                    title:ClearAllPoints()
-                    for _, point in ipairs(self.Header.WillsCDM_TitlePoints) do
-                        title:SetPoint(unpack(point))
-                    end
-                end
-            end
-        end
-        if self.Container then
-            self.Container:SetShown(not self.Collapsed)
-            if self.Container.Layout then
-                self.Container:Layout()
-            end
+        self.Header:UpdateCollapsedState(self.Collapsed)
+        self.Container:SetShown(not self.Collapsed)
+
+        local frame = _G["CooldownViewerSettings"]
+        if frame.WillsCDM_ScrollFrame then
+            frame.WillsCDM_ScrollFrame:Hide()
+            frame.WillsCDM_ScrollFrame:Show()
         end
     end
 
@@ -653,7 +574,6 @@ function MiscPanel:CreateItemCategory(parent, title, state)
 
     function categoryDisplay:ToggleCollapsed()
         self:SetCollapsed(not self:IsCollapsed())
-        MiscPanel:RefreshMiscPanel()
     end
 
     if categoryDisplay.Header then
@@ -676,11 +596,9 @@ function MiscPanel:CreateItemCategory(parent, title, state)
     categoryDisplay:SetScript("OnEnter", function(self)
         SetReorderTarget(self)
     end)
-    if categoryDisplay.Container then
-        categoryDisplay.Container:SetScript("OnEnter", function()
-            SetReorderTarget(categoryDisplay)
-        end)
-    end
+    categoryDisplay.Container:SetScript("OnEnter", function()
+        SetReorderTarget(categoryDisplay)
+    end)
 
     categoryDisplay.itemPool = CreateFramePool("Frame", categoryDisplay.Container, "CooldownViewerSettingsItemTemplate",
         function(_, frame)
@@ -751,20 +669,19 @@ function MiscPanel:RefreshMiscPanel(settingsFrame)
     ItemsData:EnsureTrackedItems(owned)
 
     local frame = settingsFrame or _G["CooldownViewerSettings"]
-    local miscPanel = frame.WillsCDM_MiscPanel
-    if not miscPanel then
-        return
-    end
 
-    if miscPanel.SetPortraitToSpecIcon then
-        miscPanel:SetPortraitToSpecIcon()
-    end
-
-    local showUnusable = DB.GetShowingUnusable()
+    local showUnlearned = C_CVar.GetCVarBool("cooldownViewerShowUnlearned")
     local shownEntries = ItemsData:GetEntriesByState(ITEM_STATE_SHOWN)
     local hiddenEntries = ItemsData:GetEntriesByState(ITEM_STATE_HIDDEN)
 
-    if not showUnusable then
+    if frame.WillsCDM_Categories == nil then
+        return
+    end
+
+    local shownCategory = frame.WillsCDM_Categories[1]
+    local hiddenCategory = frame.WillsCDM_Categories[2]
+
+    if not showUnlearned then
         -- Filter out items the player does not own (same logic as icon desaturation)
         local filteredShown = {}
         for _, entry in ipairs(shownEntries) do
@@ -783,8 +700,8 @@ function MiscPanel:RefreshMiscPanel(settingsFrame)
     end
 
     -- Filter by search term
-    local searchTerm = miscPanel.WillsCDM_SearchTerm or ""
-    if searchTerm ~= "" then
+    local searchTerm = frame.filterText
+    if searchTerm and searchTerm ~= "" then
         local function matchesSearch(entry)
             local name = ItemsData:GetEntryName(entry.kind, entry.id)
             return name and name:lower():find(searchTerm:lower(), 1, true)
@@ -805,96 +722,42 @@ function MiscPanel:RefreshMiscPanel(settingsFrame)
         hiddenEntries = filteredHidden
     end
 
-    local categories = miscPanel.WillsCDM_Categories
-    if not categories then
-        return
+    shownCategory:SetPoint("TOPLEFT", frame.WillsCDM_ScrollChild, "TOPLEFT", 0, 0)
+    hiddenCategory:SetPoint("TOPLEFT", shownCategory, "BOTTOMLEFT", 0, -18)
+    self:LayoutCategory(shownCategory, shownEntries, owned)
+    self:LayoutCategory(hiddenCategory, hiddenEntries, owned)
+    frame.WillsCDM_ScrollFrame:UpdateScrollChildRect()
+
+    local needsScrollPadding = frame.WillsCDM_ScrollFrame:GetVerticalScrollRange() > 0
+    if needsScrollPadding then
+        if not frame.WillsCDM_ScrollPadding then
+            frame.WillsCDM_ScrollPadding = CreateFrame("Frame", nil, frame.WillsCDM_ScrollChild)
+            frame.WillsCDM_ScrollPadding:SetHeight(18)
+        end
+        frame.WillsCDM_ScrollPadding:ClearAllPoints()
+        frame.WillsCDM_ScrollPadding:SetPoint("TOPLEFT", hiddenCategory, "BOTTOMLEFT")
+        frame.WillsCDM_ScrollPadding:SetPoint("TOPRIGHT", hiddenCategory, "BOTTOMRIGHT")
     end
 
-    self:LayoutCategory(categories[1], shownEntries, owned)
-    self:LayoutCategory(categories[2], hiddenEntries, owned)
-
-    local scrollChild = miscPanel.WillsCDM_ScrollChild
-    if scrollChild then
-        local yOffset = 0
-        local previousCategory = nil
-        for _, category in ipairs(categories) do
-            category:ClearAllPoints()
-            if previousCategory then
-                category:SetPoint("TOPLEFT", previousCategory, "BOTTOMLEFT", 0, -18)
-            else
-                category:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
-            end
-            yOffset = yOffset + category:GetHeight() + (previousCategory and 18 or 0)
-            previousCategory = category
-        end
-        local scrollFrame = miscPanel.WillsCDM_ScrollFrame
-        if scrollFrame then
-            local paddingHeight = 18
-            local frameHeight = scrollFrame:GetHeight() or 0
-            local needsScrollPadding = previousCategory and (frameHeight > 0 and yOffset > frameHeight)
-            if needsScrollPadding then
-                if not miscPanel.WillsCDM_ScrollPadding then
-                    miscPanel.WillsCDM_ScrollPadding = CreateFrame("Frame", nil, scrollChild)
-                    miscPanel.WillsCDM_ScrollPadding:SetHeight(paddingHeight)
-                end
-                miscPanel.WillsCDM_ScrollPadding:ClearAllPoints()
-                miscPanel.WillsCDM_ScrollPadding:SetPoint("TOPLEFT", previousCategory, "BOTTOMLEFT")
-                miscPanel.WillsCDM_ScrollPadding:SetPoint("TOPRIGHT", previousCategory, "BOTTOMRIGHT")
-                miscPanel.WillsCDM_ScrollPadding:Show()
-                scrollChild:SetHeight(math.max(1, yOffset + paddingHeight))
-            elseif miscPanel.WillsCDM_ScrollPadding then
-                miscPanel.WillsCDM_ScrollPadding:Hide()
-                scrollChild:SetHeight(math.max(1, yOffset))
-            end
-
-            scrollFrame:UpdateScrollChildRect()
-        else
-            scrollChild:SetHeight(math.max(1, yOffset))
-        end
+    if frame.WillsCDM_ScrollPadding then
+        frame.WillsCDM_ScrollPadding:SetShown(needsScrollPadding)
     end
 end
 
 local function ShowMiscPanel(settingsFrame)
-    local miscPanel = settingsFrame.WillsCDM_MiscPanel
-    if not miscPanel then
-        return
-    end
-
-    local hidden = {}
-    for _, child in ipairs({ settingsFrame:GetChildren() }) do
-        if child:IsShown() and child ~= miscPanel and not IsTabButton(child) then
-            child:Hide()
-            table.insert(hidden, child)
-        end
-    end
-
-    settingsFrame.WillsCDM_HiddenChildren = hidden
+    print("Showing Misc Panel")
+    settingsFrame.CooldownScroll:Hide()
+    settingsFrame.WillsCDM_ScrollFrame:Show()
     MiscPanel:RefreshMiscPanel(settingsFrame)
-    miscPanel:Show()
 end
 
 function MiscPanel:EnsureMiscSettingsTab(settingsFrame)
-    if settingsFrame.WillsCDM_MiscPanel then
+    if settingsFrame.WillsCDM_ScrollFrame then
         return
     end
 
-    local miscPanel = CreateFrame("Frame", "WillsCDM_MiscPanel", settingsFrame, "ButtonFrameTemplate")
-    miscPanel:SetAllPoints(settingsFrame)
-    miscPanel:Hide()
-    miscPanel.Inset.Bg:SetAtlas("character-panel-background", true)
-    miscPanel.Inset.Bg:SetHorizTile(false)
-    miscPanel.Inset.Bg:SetVertTile(false)
-    miscPanel.TitleContainer.TitleText:SetText("Cooldown Settings")
-
-    if miscPanel.CloseButton then
-        miscPanel.CloseButton:SetScript("OnClick", function()
-            HideUIPanel(settingsFrame)
-        end)
-    end
-
-    settingsFrame.WillsCDM_MiscPanel = miscPanel
-
-    local scrollFrame = CreateFrame("ScrollFrame", "$parent.CooldownScroll", miscPanel, "ScrollFrameTemplate")
+    local scrollFrame = CreateFrame("ScrollFrame", "$parent.WillsCDM_CooldownScroll", settingsFrame,
+        "ScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", 17, -72)
     scrollFrame:SetPoint("BOTTOMRIGHT", -30, 29)
 
@@ -911,73 +774,16 @@ function MiscPanel:EnsureMiscSettingsTab(settingsFrame)
         MiscPanel:RefreshMiscPanel(settingsFrame)
     end)
 
-    miscPanel:HookScript("OnShow", function()
-        scrollChild:SetWidth(scrollFrame:GetWidth())
-        MiscPanel:RefreshMiscPanel(settingsFrame)
-    end)
-
     local shownCategory = self:CreateItemCategory(scrollChild, "Misc Cooldowns", ITEM_STATE_SHOWN)
     local hiddenCategory = self:CreateItemCategory(scrollChild, "Not Displayed", ITEM_STATE_HIDDEN)
 
-    miscPanel.WillsCDM_Categories = { shownCategory, hiddenCategory }
-    miscPanel.WillsCDM_ScrollChild = scrollChild
-    miscPanel.WillsCDM_ScrollFrame = scrollFrame
+    settingsFrame.WillsCDM_Categories = { shownCategory, hiddenCategory }
     local spellsTab = settingsFrame.SpellsTab
     local aurasTab = settingsFrame.AurasTab
-
-    spellsTab.WillsCDM_IsTabButton = true
-    aurasTab.WillsCDM_IsTabButton = true
-
-    -- Create a dedicated search box for the MiscPanel, matching Blizzard's CooldownViewerSettings XML
-    if not miscPanel.WillsCDM_SearchBox then
-        local searchBox = CreateFrame("EditBox", nil, miscPanel, "SearchBoxTemplate")
-        searchBox:SetSize(290, 30)
-        searchBox:SetPoint("TOPLEFT", miscPanel, "TOPLEFT", 72, -30)
-        searchBox.Instructions:SetText("Enter search text")
-        searchBox:SetScript("OnTextChanged", function(self)
-            self.Instructions:SetShown(self:GetText() == "")
-            miscPanel.WillsCDM_SearchTerm = self:GetText()
-            MiscPanel:RefreshMiscPanel(settingsFrame)
-        end)
-        searchBox:Hide()
-        miscPanel.WillsCDM_SearchBox = searchBox
-    end
-
-    -- Create a dedicated settings dropdown for the MiscPanel, matching Blizzard's CooldownViewerSettings XML
-    if not miscPanel.WillsCDM_SettingsDropdown then
-        local settingsDropdown = CreateFrame("DropdownButton", nil, miscPanel, "UIPanelIconDropdownButtonTemplate")
-        settingsDropdown:SetPoint("LEFT", miscPanel.WillsCDM_SearchBox, "RIGHT", 5, 0)
-        settingsDropdown:SetupMenu(function(owner, rootDescription)
-            rootDescription:CreateCheckbox("Show Unusable", DB.GetShowingUnusable, DB.ToggleShowUnusable)
-        end)
-        settingsDropdown:Hide()
-        miscPanel.WillsCDM_SettingsDropdown = settingsDropdown
-    end
-
-    if not miscPanel.WillsCDM_TrackTip then
-        local trackTip = miscPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        trackTip:SetPoint("BOTTOMLEFT", miscPanel, "BOTTOMLEFT", 10, 10)
-        trackTip:SetText("Tip: Use `/wcdm track` to re-add an item or spell you stopped tracking.")
-        miscPanel.WillsCDM_TrackTip = trackTip
-    end
-
-    -- Show/hide search/settings only when MiscPanel is shown
-    miscPanel:HookScript("OnShow", function(self)
-        if self.WillsCDM_SearchBox then
-            self.WillsCDM_SearchBox:Show()
-        end
-        if self.WillsCDM_SettingsDropdown then
-            self.WillsCDM_SettingsDropdown:Show()
-        end
-    end)
-    miscPanel:HookScript("OnHide", function(self)
-        if self.WillsCDM_SearchBox then
-            self.WillsCDM_SearchBox:Hide()
-        end
-        if self.WillsCDM_SettingsDropdown then
-            self.WillsCDM_SettingsDropdown:Hide()
-        end
-    end)
+    scrollFrame:Hide()
+    settingsFrame.WillsCDM_ScrollFrame = scrollFrame
+    settingsFrame.WillsCDM_ScrollChild = scrollChild
+    MiscPanel:RefreshMiscPanel(settingsFrame)
 
     -- Do not parent the miscTab to settingsFrame! Doing so will add it to its .TabButtons list and will taint everything inside CooldownViewer as a result.
     local miscTab = CreateFrame("Button", "$parent.MiscTab", UIParent, "CooldownViewerSettingsTabTemplate")
@@ -998,7 +804,7 @@ function MiscPanel:EnsureMiscSettingsTab(settingsFrame)
     end)
 
     miscTab:SetScript("OnClick", function(self)
-        if settingsFrame.WillsCDM_MiscPanel:IsShown() then
+        if settingsFrame.WillsCDM_ScrollFrame:IsShown() then
             return
         end
 
@@ -1014,6 +820,19 @@ function MiscPanel:EnsureMiscSettingsTab(settingsFrame)
         aurasTab:SetChecked(mode == "auras")
         miscTab:SetChecked(mode == "misc")
         MiscPanel:HideMiscPanel(self)
+        settingsFrame.CooldownScroll:Show()
+    end)
+
+    hooksecurefunc(settingsFrame, "RefreshVisibleCategories", function(self)
+        if self.WillsCDM_ScrollFrame and self.WillsCDM_ScrollFrame:IsShown() then
+            MiscPanel:RefreshMiscPanel(self)
+        end
+    end)
+
+    hooksecurefunc(settingsFrame, "ApplyFilter", function(self)
+        if self.WillsCDM_ScrollFrame and self.WillsCDM_ScrollFrame:IsShown() then
+            MiscPanel:RefreshMiscPanel(self)
+        end
     end)
 
     miscTab:Show()
