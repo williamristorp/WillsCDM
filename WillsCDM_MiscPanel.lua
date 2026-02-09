@@ -11,9 +11,6 @@ addon.MiscPanel = MiscPanel
 local ITEM_STATE_SHOWN = ItemsData.ITEM_STATE_SHOWN
 local ITEM_STATE_HIDDEN = ItemsData.ITEM_STATE_HIDDEN
 local ITEM_STATE_REMOVED = ItemsData.ITEM_STATE_REMOVED
-addon.ITEM_STATE_SHOWN = ITEM_STATE_SHOWN
-addon.ITEM_STATE_HIDDEN = ITEM_STATE_HIDDEN
-addon.ITEM_STATE_REMOVED = ITEM_STATE_REMOVED
 
 local reorderSourceItem = nil
 local reorderTarget = nil

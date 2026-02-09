@@ -12,9 +12,6 @@ local ITEM_STATE_SHOWN = "shown"
 local ITEM_STATE_HIDDEN = "hidden"
 local ITEM_STATE_REMOVED = "removed"
 
-local RACIAL_NAME_FALLBACK = "Racial"
-local GENERAL_NAME_FALLBACK = "General"
-
 local racialSpellCache = nil
 local racialSpellCacheDirty = true
 local didMigrateLegacyEntries = false
@@ -35,66 +32,7 @@ local function EntriesEqual(a, b)
 end
 
 local function GetSpellNameByID(spellID)
-    if C_Spell and C_Spell.GetSpellName then
-        return C_Spell.GetSpellName(spellID)
-    end
-    if GetSpellInfo then
-        local name = GetSpellInfo(spellID)
-        return name
-    end
-    return nil
-end
-
-local function IsPassiveSpellID(spellID)
-    if C_Spell and C_Spell.IsSpellPassive then
-        return C_Spell.IsSpellPassive(spellID)
-    end
-    if IsPassiveSpell then
-        return IsPassiveSpell(spellID)
-    end
-    return false
-end
-
-local function IsRacialSkillLineName(name)
-    if not name or name == "" then
-        return false
-    end
-    local racialAbilities = _G and _G.RACIAL_ABILITIES or nil
-    if racialAbilities and name == racialAbilities then
-        return true
-    end
-    if name == RACIAL_NAME_FALLBACK then
-        return true
-    end
-    if name:lower():find(RACIAL_NAME_FALLBACK:lower(), 1, true) then
-        return true
-    end
-    return false
-end
-
-local function IsGeneralSkillLineName(name)
-    if not name or name == "" then
-        return false
-    end
-    local generalLabel = _G and _G.GENERAL or nil
-    if generalLabel and name == generalLabel then
-        return true
-    end
-    local generalTab = _G and _G.SPELLBOOK_GENERAL_TAB or nil
-    if generalTab and name == generalTab then
-        return true
-    end
-    if name == GENERAL_NAME_FALLBACK then
-        return true
-    end
-    if name:lower():find(GENERAL_NAME_FALLBACK:lower(), 1, true) then
-        return true
-    end
-    return false
-end
-
-local function IsRacialOrGeneralSkillLineName(name)
-    return IsRacialSkillLineName(name) or IsGeneralSkillLineName(name)
+    return C_Spell.GetSpellName(spellID)
 end
 
 local function GetRacialSpellIDsFromSpellBook()
@@ -103,70 +41,28 @@ local function GetRacialSpellIDsFromSpellBook()
     end
 
     local ids = {}
-    if not C_SpellBook or not C_SpellBook.GetNumSpellBookSkillLines or not C_SpellBook.GetSpellBookSkillLineInfo then
-        racialSpellCache = ids
-        racialSpellCacheDirty = false
-        return ids
-    end
 
-    local spellBank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or nil
+    for skillLineIndex = 1, C_SpellBook.GetNumSpellBookSkillLines() do
+        local skillLineInfo = C_SpellBook.GetSpellBookSkillLineInfo(skillLineIndex)
+        if skillLineInfo.name == "General" then
+            local offset = skillLineInfo.itemIndexOffset
+            local numSpells = skillLineInfo.numSpellBookItems
 
-    local okNum, numLines = pcall(C_SpellBook.GetNumSpellBookSkillLines, spellBank)
-    if not okNum then
-        okNum, numLines = pcall(C_SpellBook.GetNumSpellBookSkillLines)
-    end
-    if not okNum or type(numLines) ~= "number" then
-        racialSpellCache = ids
-        racialSpellCacheDirty = false
-        return ids
-    end
-
-    local function GetSkillLineInfo(index)
-        local ok, info = pcall(C_SpellBook.GetSpellBookSkillLineInfo, index, spellBank)
-        if ok and info then
-            return info
-        end
-        ok, info = pcall(C_SpellBook.GetSpellBookSkillLineInfo, index)
-        if ok and info then
-            return info
-        end
-        return nil
-    end
-
-    local function GetSpellBookItemInfo(index)
-        local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, spellBank, index)
-        if ok and info then
-            return info
-        end
-        ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, index, spellBank)
-        if ok and info then
-            return info
-        end
-        ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, index)
-        if ok and info then
-            return info
-        end
-        return nil
-    end
-
-    for skillLineIndex = 1, numLines do
-        local info = GetSkillLineInfo(skillLineIndex)
-        if info and IsRacialOrGeneralSkillLineName(info.name) then
-            local offset = info.itemIndexOffset or info.itemIndexOffsetFromParent or 0
-            local count = info.numSpellBookItems or info.numSlots or 0
-            for slot = 1, count do
-                local spellBookIndex = offset + slot
-                local itemInfo = GetSpellBookItemInfo(spellBookIndex)
-                if itemInfo then
-                    local spellID = itemInfo.spellID or itemInfo.actionID
-                    local isPassive = itemInfo.isPassive
-                    local itemType = itemInfo.itemType or itemInfo.spellBookItemType
-                    local isSpellItem = not itemType
-                    if Enum and Enum.SpellBookItemType and itemType ~= nil then
-                        isSpellItem = itemType == Enum.SpellBookItemType.Spell
-                    end
-                    if spellID and isSpellItem and not (isPassive or IsPassiveSpellID(spellID)) then
-                        ids[spellID] = true
+            for spellBookItemIndex = offset + 1, offset + numSpells do
+                local spellInfo = C_SpellBook.GetSpellBookItemInfo(spellBookItemIndex, Enum.SpellBookSpellBank.Player)
+                if not spellInfo.isPassive then
+                    if spellInfo.itemType == Enum.SpellBookItemType.Flyout then
+                        local _, _, numSlots = GetFlyoutInfo(spellInfo.actionID)
+                        for i = 1, numSlots do
+                            local flyoutSpellID, _, isKnown, _, _ = GetFlyoutSlotInfo(spellInfo.actionID, i)
+                            if isKnown then
+                                if not C_Spell.IsSpellPassive(flyoutSpellID) then
+                                    ids[flyoutSpellID] = true
+                                end
+                            end
+                        end
+                    else
+                        ids[spellInfo.spellID] = true
                     end
                 end
             end

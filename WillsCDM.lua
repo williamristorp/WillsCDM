@@ -528,10 +528,6 @@ SlashCmdList["CDM"] = function()
     ShowUIPanel(CooldownViewerSettings)
 end
 
-local function starts_with(str, start)
-    return str:sub(1, #start) == start
-end
-
 local function PrintIsShowAura(spellID)
     local spellName = C_Spell.GetSpellName(spellID) or "Unknown Spell"
 
@@ -778,7 +774,7 @@ SlashCmdList["WCDM"] = function(msg, editBox)
                 print("Usage: /wcdm track {spell|item} <id>")
                 return
             end
-            ItemsData:SetEntryState(kind, id, addon.ITEM_STATE_HIDDEN)
+            ItemsData:SetEntryState(kind, id, ItemsData.ITEM_STATE_HIDDEN)
             MiscPanel:RefreshMiscPanel()
             ItemViewer:RefreshItemViewerFrames()
         elseif cmd == "help" or cmd == "--help" then
