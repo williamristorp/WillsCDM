@@ -4,6 +4,7 @@ addon = addon or {}
 local DB = addon.DB
 local ItemsData = addon.ItemsData
 local ItemVisuals = addon.ItemVisuals
+local MasqueSupport = addon.MasqueSupport
 local ItemViewer = addon.ItemViewer or {}
 addon.ItemViewer = ItemViewer
 
@@ -43,6 +44,10 @@ function ItemViewerFrame:Initialize()
     end
     if frame.cooldownDuration == nil then
         frame.cooldownDuration = 0
+    end
+
+    if MasqueSupport and MasqueSupport.RegisterItemViewerButton then
+        MasqueSupport:RegisterItemViewerButton(frame)
     end
 end
 
@@ -192,30 +197,6 @@ function ItemViewer:UpdateItemsLayout(count)
         local frame = itemFrames[i].frame
         frame:SetSize(baseSize, baseSize)
         frame:SetScale(scale)
-        if frame.Icon then
-            frame.Icon:ClearAllPoints()
-            frame.Icon:SetAllPoints()
-        end
-        if frame.Border then
-            frame.Border:ClearAllPoints()
-            frame.Border:SetAllPoints()
-        end
-        if frame.IconBorder then
-            frame.IconBorder:ClearAllPoints()
-            frame.IconBorder:SetAllPoints()
-        end
-        if frame.Background then
-            frame.Background:ClearAllPoints()
-            frame.Background:SetAllPoints()
-        end
-        if frame.Highlight then
-            frame.Highlight:ClearAllPoints()
-            frame.Highlight:SetAllPoints()
-        end
-        if frame.Cooldown then
-            frame.Cooldown:ClearAllPoints()
-            frame.Cooldown:SetAllPoints()
-        end
         local xOffset = (i - 1) * (visualSize + adjustedSpacing) * (1 / scale)
         frame:SetPoint("LEFT", itemViewer, "LEFT", xOffset, 0)
     end

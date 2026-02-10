@@ -5,10 +5,12 @@
 ## LoadOnDemand: 0
 ## Category: User Interface
 ## SavedVariables: WillsDB
+## OptionalDeps: Masque
 
 WillsCDM_DB.lua
 WillsCDM_ItemsData.lua
 WillsCDM_ItemVisuals.lua
+WillsCDM_Masque.lua
 WillsCDM_ItemViewer.lua
 WillsCDM_MiscPanel.lua
 WillsCDM.lua

@@ -107,11 +107,7 @@ function ItemsData:InvalidateRacialSpellCache()
 end
 
 function ItemsData:GetItemNameByID(itemID)
-    if C_Item and C_Item.GetItemNameByID then
-        return C_Item.GetItemNameByID(itemID)
-    end
-    local name = GetItemInfo(itemID)
-    return name
+    return C_Item.GetItemNameByID(itemID)
 end
 
 function ItemsData:GetEntryName(kind, id)

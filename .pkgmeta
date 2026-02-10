@@ -7,3 +7,5 @@ externals:
   libs/LibEditMode:
     url: https://github.com/p3lim-wow/LibEditMode
     tag: latest
+options-dependencies:
+  - masque
