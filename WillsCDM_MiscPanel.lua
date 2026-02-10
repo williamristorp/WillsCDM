@@ -40,7 +40,7 @@ function MiscPanel:HideMiscPanel(settingsFrame)
 end
 
 local function GetMiscPanelFrame()
-    return _G["CooldownViewerSettings"]
+    return _G["CooldownViewerSettings"].WillsCDM_ScrollFrame
 end
 
 local function GetEntryKindAndID(button)
@@ -301,7 +301,7 @@ local function BeginOrderChange(itemButton, eatNextGlobalMouseUp)
     PickupItemCursor(itemButton)
     EnsureReorderMarker()
 
-    local miscPanel = _G["CooldownViewerSettings"]
+    local miscPanel = GetMiscPanelFrame()
     if miscPanel then
         miscPanel:SetScript("OnUpdate", function()
             UpdateReorderMarker()
@@ -401,11 +401,7 @@ local function InitializeItemButton(button)
         SetReorderTarget(self)
         if self.WillsCDM_Empty then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            if GameTooltip_SetTitle then
-                GameTooltip_SetTitle(GameTooltip, "Empty Slot")
-            else
-                GameTooltip:SetText("Empty Slot")
-            end
+            GameTooltip:SetText("Empty Slot")
             GameTooltip:Show()
         else
             local kind, id = GetEntryKindAndID(self)
@@ -428,7 +424,7 @@ local function InitializeItemButton(button)
         end
     end)
     button:SetScript("OnLeave", function()
-        GameTooltip_Hide()
+        GameTooltip:Hide()
     end)
 
     function button:SetReorderLocked(locked)
@@ -495,15 +491,6 @@ end
 
 local function ResetCategoryButtons(category)
     category.itemPool:ReleaseAll()
-
-    local container = category.Container
-    if container then
-        for _, child in ipairs({ container:GetChildren() }) do
-            if child.layoutIndex ~= nil then
-                child.layoutIndex = nil
-            end
-        end
-    end
 end
 
 function MiscPanel:LayoutCategory(category, entries, owned)
@@ -665,10 +652,13 @@ function MiscPanel:CreateItemCategory(parent, title, state)
 end
 
 function MiscPanel:RefreshMiscPanel(settingsFrame)
+    local frame = settingsFrame or _G["CooldownViewerSettings"]
+    if not frame or not frame.WillsCDM_ScrollFrame or not frame.WillsCDM_ScrollFrame:IsShown() then
+        return
+    end
+
     local owned = ItemsData:ScanOwnedItems()
     ItemsData:EnsureTrackedItems(owned)
-
-    local frame = settingsFrame or _G["CooldownViewerSettings"]
 
     local showUnlearned = C_CVar.GetCVarBool("cooldownViewerShowUnlearned")
     local shownEntries = ItemsData:GetEntriesByState(ITEM_STATE_SHOWN)
@@ -742,10 +732,12 @@ function MiscPanel:RefreshMiscPanel(settingsFrame)
     if frame.WillsCDM_ScrollPadding then
         frame.WillsCDM_ScrollPadding:SetShown(needsScrollPadding)
     end
+
+    frame.WillsCDM_ScrollFrame:Hide()
+    frame.WillsCDM_ScrollFrame:Show()
 end
 
 local function ShowMiscPanel(settingsFrame)
-    print("Showing Misc Panel")
     settingsFrame.CooldownScroll:Hide()
     settingsFrame.WillsCDM_ScrollFrame:Show()
     MiscPanel:RefreshMiscPanel(settingsFrame)
@@ -783,7 +775,6 @@ function MiscPanel:EnsureMiscSettingsTab(settingsFrame)
     scrollFrame:Hide()
     settingsFrame.WillsCDM_ScrollFrame = scrollFrame
     settingsFrame.WillsCDM_ScrollChild = scrollChild
-    MiscPanel:RefreshMiscPanel(settingsFrame)
 
     -- Do not parent the miscTab to settingsFrame! Doing so will add it to its .TabButtons list and will taint everything inside CooldownViewer as a result.
     local miscTab = CreateFrame("Button", "$parent.MiscTab", UIParent, "CooldownViewerSettingsTabTemplate")
