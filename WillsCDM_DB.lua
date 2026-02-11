@@ -3,6 +3,7 @@ addon = addon or {}
 
 addon.DB = addon.DB or {}
 local DB = addon.DB
+local Log = addon.Log
 
 DB.DEFAULT_COOLDOWN_SWIPE_COLOR = { 0, 0, 0, 0.7 }
 DB.DEFAULT_AURA_SWIPE_COLOR = { 1, 0.95, 0.57, 0.7 }
@@ -18,8 +19,11 @@ local dbDefaults = {
     itemSettings = {},
     spellItemSettings = {},
     spellSettings = {},
-    showUnusable = false
+    showUnusable = false,
+    loggingEnabled = false,
+    logLevel = Log.Level.INFO,
 }
+
 function DB.GetAuraSwipeReversed(spellID)
     local db = DB.GetDB()
     local settings = DB.GetSpellSettings(spellID)
@@ -386,4 +390,24 @@ function DB.ToggleShowUnusable()
     if addon.MiscPanel and addon.MiscPanel.RefreshMiscPanel then
         addon.MiscPanel:RefreshMiscPanel()
     end
+end
+
+function DB.IsLoggingEnabled()
+    local db = DB.GetDB()
+    return db.loggingEnabled == true
+end
+
+function DB.SetLoggingEnabled(value)
+    local db = DB.GetDB()
+    db.loggingEnabled = value == true
+end
+
+function DB.GetLogLevel()
+    local db = DB.GetDB()
+    return db.logLevel or Log.Level.INFO
+end
+
+function DB.SetLogLevel(level)
+    local db = DB.GetDB()
+    db.logLevel = level
 end

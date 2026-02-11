@@ -6,8 +6,10 @@ local DB = addon.DB
 local MiscPanel = addon.MiscPanel
 local ItemsData = addon.ItemsData
 local ItemViewer = addon.ItemViewer
+local Log = addon.Log
 
 local function GetCooldownFrames()
+    Log:Enter("GetCooldownFrames")
     local frames = {}
 
     local essentialViewer = _G["EssentialCooldownViewer"]
@@ -34,6 +36,7 @@ end
 addon.GetCooldownFrames = GetCooldownFrames
 
 local function GetBuffIconFrames()
+    Log:Enter("GetBuffIconFrames")
     local frames = {}
 
     local buffViewer = _G["BuffIconCooldownViewer"]
@@ -53,6 +56,7 @@ desaturationCurve:AddPoint(0, 0)
 desaturationCurve:AddPoint(0.001, 1)
 
 local function ApplyIconSettings(cdmFrame)
+    Log:Enter("ApplyIconSettings")
     local cooldownInfo = cdmFrame:GetCooldownInfo()
     if cooldownInfo == nil then
         return
@@ -95,6 +99,7 @@ local function ApplyIconSettings(cdmFrame)
 end
 
 local function ApplyCooldownSettings(cdmFrame)
+    Log:Enter("ApplyCooldownSettings")
     local cooldownInfo = cdmFrame:GetCooldownInfo()
     if cooldownInfo == nil then
         return
@@ -137,6 +142,7 @@ local function ApplyCooldownSettings(cdmFrame)
 end
 
 local function HookCooldownFrame(cdmFrame)
+    Log:Enter("HookCooldownFrame")
     if cdmFrame.WillsCDM_Hooked or cdmFrame.Cooldown == nil or cdmFrame.Icon == nil then
         return
     end
@@ -153,6 +159,7 @@ local function HookCooldownFrame(cdmFrame)
 end
 
 local function HookBuffIconFrame(cdmFrame)
+    Log:Enter("HookBuffIconFrame")
     if cdmFrame.WillsCDM_Hooked or cdmFrame.Cooldown == nil or cdmFrame.Icon == nil then
         return
     end
@@ -178,6 +185,7 @@ local function HookBuffIconFrame(cdmFrame)
 end
 
 local function HookFrames()
+    Log:Enter("HookFrames")
     local cooldownFrames = GetCooldownFrames()
 
     for _, cdmFrame in ipairs(cooldownFrames) do
@@ -200,6 +208,7 @@ local function HookFrames()
 end
 
 local function RefreshCooldownManagerFrames()
+    Log:Enter("RefreshCooldownManagerFrames")
     if InCombatLockdown() then
         return
     end
@@ -214,42 +223,6 @@ local function RefreshCooldownManagerFrames()
     end
 
     ItemViewer:RefreshItemViewerFrames()
-end
-
-local function SortedKeys(tbl)
-    local keys = {}
-    for k in pairs(tbl) do
-        table.insert(keys, k)
-    end
-
-    local function IsSpellInPlayerSpellbook(spellID)
-        return C_SpellBook.IsSpellKnown(spellID)
-    end
-
-    local function SpellSortKey(spellID)
-        local name = (C_Spell and C_Spell.GetSpellName) and C_Spell.GetSpellName(spellID) or nil
-        if not name or name == "" then
-            name = tostring(spellID)
-        end
-        return name:lower()
-    end
-
-    table.sort(keys, function(a, b)
-        local aKnown = IsSpellInPlayerSpellbook(a)
-        local bKnown = IsSpellInPlayerSpellbook(b)
-        if aKnown ~= bKnown then
-            return aKnown
-        end
-
-        local aName = SpellSortKey(a)
-        local bName = SpellSortKey(b)
-        if aName ~= bName then
-            return aName < bName
-        end
-
-        return a < b
-    end)
-    return keys
 end
 
 local function GetColorSwatchDisplayInfo(colorTable)
@@ -338,6 +311,8 @@ local function CopyColorInto(dst, src)
 end
 
 local function Run()
+    Log:SetEnabled(DB.IsLoggingEnabled())
+    Log:SetLevel(DB.GetLogLevel())
     DB.InitializeDB()
 
     HookFrames()
@@ -511,6 +486,8 @@ local function Run()
         end
         MiscPanel:RefreshMiscPanel()
     end)
+
+    Log:Info("Will's CDM loaded. Use `/cdm` or `/wcdm` to open Cooldown Settings. For more commands, use `/wcdm help`.")
 end
 
 local f = CreateFrame("Frame")
@@ -542,11 +519,13 @@ local function PrintHelp()
     print("/cdm - Open Advanced Cooldown Settings panel (might not work if another addon overrides it)")
     print("/wcdm - Open Advanced Cooldown Settings panel")
     print("/wcdm settings - Open Advanced Cooldown Settings panel")
-    print("/wcdm aura {<spellID>,all} [toggle|on|off] - Control the GUI 'Show Auras' option")
+    print("/wcdm aura {<spellID>,all} {toggle,on,off} - Control the GUI 'Show Auras' option")
     print("/wcdm reset {<spellID>,all} - Reset settings for <spellID> or all spell IDs")
     print("/wcdm items add <count> - Add <count> dummy items to the Items panel")
     print("/wcdm items clear - Remove dummy items from the Items panel")
+    print("/wcdm track {spell,item} <id> - ")
     print("/wcdm <spellID> - Show settings for spell ID")
+    print("/wcdm log {enable,disable,level,counts} - Enable or disable logging, set log level, or print entry counts")
     print("/wcdm help - Print this help message")
     print()
     print("Note: Right click spells in the Advanced Cooldown Settings panel to change its settings.")
@@ -680,13 +659,13 @@ SlashCmdList["WCDM"] = function(msg, editBox)
         if cmd == "aura" or cmd == "auras" then
             local target, modeStr = SplitFirst(rest)
             if target == "" then
-                print("Usage: /wcdm aura {<spellID>,all} [toggle|on|off]")
+                print("Usage: /wcdm aura {<spellID>,all} {toggle,on,off}")
                 return
             end
 
             local mode = ParseOnOffToggle(modeStr)
             if mode == nil then
-                print("Usage: /wcdm aura {<spellID>,all} [toggle|on|off]")
+                print("Usage: /wcdm aura {<spellID>,all} {toggle,on,off}")
                 return
             end
 
@@ -706,7 +685,7 @@ SlashCmdList["WCDM"] = function(msg, editBox)
 
             local spellID = tonumber(target)
             if not spellID then
-                print("Usage: /wcdm aura {<spellID>,all} [toggle|on|off]")
+                print("Usage: /wcdm aura {<spellID>,all} {toggle,on,off}")
                 return
             end
 
@@ -771,12 +750,56 @@ SlashCmdList["WCDM"] = function(msg, editBox)
             local kind, idStr = SplitFirst(rest)
             local id = tonumber(idStr)
             if not kind or not id then
-                print("Usage: /wcdm track {spell|item} <id>")
+                print("Usage: /wcdm track {spell,item} <id>")
                 return
             end
             ItemsData:SetEntryState(kind, id, ItemsData.ITEM_STATE_HIDDEN)
             MiscPanel:RefreshMiscPanel()
             ItemViewer:RefreshItemViewerFrames()
+        elseif cmd == "log" then
+            local subCmd, rest = SplitFirst(rest)
+
+            if subCmd == "level" then
+                local level = Trim(rest)
+                if level == "trace" then
+                    DB.SetLogLevel(Log.Level.TRACE)
+                    Log:SetLevel(Log.Level.TRACE)
+                    print("Log level set to trace.")
+                elseif level == "debug" then
+                    DB.SetLogLevel(Log.Level.DEBUG)
+                    Log:SetLevel(Log.Level.DEBUG)
+                    print("Log level set to debug.")
+                elseif level == "info" then
+                    DB.SetLogLevel(Log.Level.INFO)
+                    Log:SetLevel(Log.Level.INFO)
+                    print("Log level set to info.")
+                elseif level == "warn" then
+                    DB.SetLogLevel(Log.Level.WARN)
+                    Log:SetLevel(Log.Level.WARN)
+                    print("Log level set to warn.")
+                elseif level == "error" then
+                    DB.SetLogLevel(Log.Level.ERROR)
+                    Log:SetLevel(Log.Level.ERROR)
+                    print("Log level set to error.")
+                else
+                    print("Usage: /wcdm log level {trace,debug,info,warn,error}")
+                end
+            elseif subCmd == "enable" then
+                DB.SetLoggingEnabled(true)
+                Log:SetEnabled(true)
+                print("Logging enabled.")
+            elseif subCmd == "disable" then
+                DB.SetLoggingEnabled(false)
+                Log:SetEnabled(false)
+                print("Logging disabled.")
+            elseif subCmd == "counts" then
+                print("Log entry counts:")
+                for entry, count in pairs(Log.enterCounts) do
+                    print(string.format("%s %d", entry, count))
+                end
+            else
+                print("Usage: /wcdm log {enable,disable,level,counts}")
+            end
         elseif cmd == "help" or cmd == "--help" then
             PrintHelp()
             return

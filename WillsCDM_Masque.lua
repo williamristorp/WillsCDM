@@ -97,7 +97,6 @@ function MasqueSupport:ShouldManageItemViewer()
 end
 
 function MasqueSupport:RegisterItemViewerButton(button)
-    print("Registering button with Masque:", button and button:GetName() or "nil")
     local groups = EnsureGroups()
     if not groups or not button then
         return

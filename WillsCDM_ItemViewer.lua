@@ -1,6 +1,7 @@
 local addonName, addon = ...
 addon = addon or {}
 
+local Log = addon.Log
 local DB = addon.DB
 local ItemsData = addon.ItemsData
 local ItemVisuals = addon.ItemVisuals
@@ -26,6 +27,7 @@ function ItemViewerFrame:New(parent)
 end
 
 function ItemViewerFrame:Initialize()
+    Log:Enter("ItemViewerFrame:Initialize")
     local frame = self.frame
     if not frame.Icon then
         frame.Icon = frame:CreateTexture(nil, "ARTWORK")
@@ -60,6 +62,7 @@ function ItemViewerFrame:Hide()
 end
 
 function ItemViewerFrame:UpdateEntry(entry)
+    Log:Enter("ItemViewerFrame:UpdateEntry")
     local frame = self.frame
     if not entry then
         frame.WillsCDM_EntryKind = nil
@@ -171,6 +174,7 @@ function ItemViewer:EnsureItemViewerFrames(count)
 end
 
 function ItemViewer:UpdateItemsLayout(count)
+    Log:Enter("UpdateItemsLayout")
     if not itemViewer then
         return
     end
@@ -216,6 +220,7 @@ local function ShouldShowItemViewer()
 end
 
 function ItemViewer:ApplyItemViewerLayout(layoutName)
+    Log:Enter("ItemViewer:ApplyItemViewerLayout")
     self:EnsureItemViewer()
     local layout = DB.GetItemViewerLayout(layoutName)
     local growth = GetGrowthDirection(layout)
@@ -227,6 +232,7 @@ function ItemViewer:ApplyItemViewerLayout(layoutName)
 end
 
 function ItemViewer:RefreshItemViewerFrames()
+    Log:Enter("ItemViewer:RefreshItemViewerFrames")
     self:EnsureItemViewer()
 
     local owned = ItemsData:ScanOwnedItems()
@@ -265,6 +271,7 @@ function ItemViewer:RefreshItemViewerFrames()
 end
 
 function ItemViewer:InitializeItemsEditMode()
+    Log:Enter("ItemViewer:InitializeItemsEditMode")
     local LEM = LibStub and LibStub("LibEditMode", true)
 
     self:EnsureItemViewer()
@@ -373,6 +380,7 @@ function ItemViewer:InitializeItemsEditMode()
 end
 
 function ItemViewer:Initialize()
+    Log:Enter("ItemViewer:Initialize")
     self:InitializeItemsEditMode()
     self:ApplyItemViewerLayout("Default")
     self:RefreshItemViewerFrames()

@@ -1,6 +1,7 @@
 local addonName, addon = ...
 addon = addon or {}
 
+local Log = addon.Log
 local DB = addon.DB
 local MiscPanel = addon.MiscPanel or {}
 local ItemsData = addon.ItemsData
@@ -23,20 +24,6 @@ local reorderCursorFollow = false
 
 function MiscPanel:HideMiscPanel(settingsFrame)
     settingsFrame.WillsCDM_ScrollFrame:Hide()
-    do return end
-    if settingsFrame.WillsCDM_MiscPanel then
-        settingsFrame.WillsCDM_MiscPanel:Hide()
-    end
-
-    local hidden = settingsFrame.WillsCDM_HiddenChildren
-    if hidden then
-        for _, child in ipairs(hidden) do
-            if child and not child:IsShown() then
-                child:Show()
-            end
-        end
-        settingsFrame.WillsCDM_HiddenChildren = nil
-    end
 end
 
 local function GetMiscPanelFrame()
@@ -494,6 +481,7 @@ local function ResetCategoryButtons(category)
 end
 
 function MiscPanel:LayoutCategory(category, entries, owned)
+    Log:Enter("MiscPanel:LayoutCategory")
     ResetCategoryButtons(category)
 
     local size = 38
@@ -539,6 +527,7 @@ function MiscPanel:LayoutCategory(category, entries, owned)
 end
 
 function MiscPanel:CreateItemCategory(parent, title, state)
+    Log:Enter("MiscPanel:CreateItemCategory")
     local categoryDisplay = CreateFrame("Frame", nil, parent, "CooldownViewerSettingsCategoryTemplate")
     categoryDisplay.state = state
     categoryDisplay.Header:SetHeaderText(title)
@@ -652,6 +641,7 @@ function MiscPanel:CreateItemCategory(parent, title, state)
 end
 
 function MiscPanel:RefreshMiscPanel(settingsFrame)
+    Log:Enter("MiscPanel:RefreshMiscPanel")
     local frame = settingsFrame or _G["CooldownViewerSettings"]
     if not frame or not frame.WillsCDM_ScrollFrame or not frame.WillsCDM_ScrollFrame:IsShown() then
         return
