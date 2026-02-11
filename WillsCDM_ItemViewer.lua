@@ -91,18 +91,7 @@ function ItemViewer:EnsureItemViewer()
 end
 
 local function GetReferenceIconSize()
-    local size = 32
-    local getCooldownFrames = addon.GetCooldownFrames
-    if getCooldownFrames then
-        for _, cdmFrame in ipairs(getCooldownFrames()) do
-            local width = cdmFrame:GetWidth()
-            if width and width > 0 then
-                size = width
-                break
-            end
-        end
-    end
-    return size
+    return 32
 end
 
 local function GetGrowthDirection(layout)

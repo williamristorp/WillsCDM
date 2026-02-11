@@ -32,16 +32,16 @@ function Log:ShouldLog(level)
     return self.enabled and level >= self.level
 end
 
-function Log:FormatMessage(level, ...)
+function Log:GetPrefix(level)
     local label = LEVEL_LABELS[level]
     local prefix = self.prefix and string.format("[%s] ", self.prefix) or ""
-    return string.format("%s [%s] %s", prefix, label, table.concat({ ... }, " "))
+    return string.format("%s [%s]", prefix, label)
 end
 
 function Log:Log(level, ...)
     if self:ShouldLog(level) then
-        local message = self:FormatMessage(level, ...)
-        OUTPUT:AddMessage(message)
+        local prefix = self:GetPrefix(level)
+        print(prefix, ...)
     end
 end
 
@@ -83,10 +83,6 @@ function Log:Enter(arg1, arg2)
         functionName = arg1
     end
 
-    if not self:ShouldLog(level) then
-        return
-    end
-
     local info = debugstack(2, 1, 0)
 
     -- Trim "Interface/AddOns/WillsCDM/"
@@ -96,8 +92,11 @@ function Log:Enter(arg1, arg2)
     info = string.gsub(info, "in function.*", functionName or "")
 
     self.enterCounts[info] = (self.enterCounts[info] or 0) + 1
-    local count = self.enterCounts[info]
-    self:Log(level, string.format("Entering %s (count: %d)", info, count))
+
+    if self:ShouldLog(level) then
+        local count = self.enterCounts[info]
+        self:Log(level, string.format("Entering %s (count: %d)", info, count))
+    end
 end
 
 function Log:SetEnabled(enabled)

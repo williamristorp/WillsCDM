@@ -51,49 +51,62 @@ local function GetBuffIconFrames()
     return frames
 end
 
-local desaturationCurve = C_CurveUtil.CreateCurve()
-desaturationCurve:AddPoint(0, 0)
-desaturationCurve:AddPoint(0.001, 1)
+local hookedFrames = {}
+-- Maps cooldown frames to their spell ID
+-- If spell ID is nil, then the cooldown is no longer overridden
+local overriddenFrames = {}
 
-local function ApplyIconSettings(cdmFrame)
-    Log:Enter("ApplyIconSettings")
-    local cooldownInfo = cdmFrame:GetCooldownInfo()
-    if cooldownInfo == nil then
-        return
+local function UpdateOverriddenFrame(cdmFrame, spellID)
+    spellID = spellID or overriddenFrames[cdmFrame]
+    if not spellID then return end
+
+    local cooldown = C_Spell.GetSpellCooldown(spellID)
+    local cooldownDuration = C_Spell.GetSpellCooldownDuration(spellID)
+    local charges = C_Spell.GetSpellCharges(spellID)
+    local chargeDuration = charges and C_Spell.GetSpellChargeDuration(spellID) or nil
+
+    cdmFrame.Cooldown:SetReverse(false)
+    cdmFrame.Cooldown:SetCooldownFromDurationObject(cooldownDuration)
+    if charges then
+        cdmFrame.Cooldown:SetCooldownFromDurationObject(chargeDuration)
     end
 
-    local spellID = cooldownInfo.overrideSpellID or cooldownInfo.spellID
-    if not spellID then
-        return
-    end
+    local swipeColor = DB.GetCooldownSwipeColor(spellID)
 
-    if DB.GetShowAuras(spellID) and cdmFrame.wasSetFromAura then
-        cdmFrame.Cooldown:SetDrawSwipe(cdmFrame.cooldownShowSwipe == true)
+    -- If it's just on GCD, don't desaturate, otherwise desaturate when it's on cooldown
+    if cooldown.isOnGCD then
         cdmFrame.Icon:SetDesaturation(0)
-        return
+    else
+        local desaturation = C_CurveUtil.EvaluateColorValueFromBoolean(cooldownDuration:IsZero(), 0, 1)
+        cdmFrame.Icon:SetDesaturation(desaturation)
     end
 
-    if cdmFrame.wasSetFromAura then
-        cdmFrame.Icon:SetDesaturation(cdmFrame.WillsCDM_Desaturation)
-
-        local spellCharges = C_Spell.GetSpellCharges(spellID)
-        if spellCharges then
-            if issecretvalue(spellCharges.currentCharges) or issecretvalue(spellCharges.maxCharges) then
-                if issecretvalue(cdmFrame.Icon:IsDesaturated()) then
-                    local flashIsShown = cdmFrame.CooldownFlash:IsShown()
-                    cdmFrame.Cooldown:SetDrawSwipe(flashIsShown)
-                    cdmFrame.Cooldown:SetDrawEdge(not flashIsShown or DB.GetAlwaysShowCooldownEdge(spellID))
-                else
-                    cdmFrame.Cooldown:SetDrawSwipe(false)
-                    cdmFrame.Cooldown:SetDrawEdge(true)
-                end
-            else
-                cdmFrame.Cooldown:SetDrawSwipe(spellCharges.currentCharges == 0)
-                cdmFrame.Cooldown:SetDrawEdge(spellCharges.currentCharges < spellCharges.maxCharges or
-                    DB.GetAlwaysShowCooldownEdge(spellID))
-            end
+    -- If the spell has charges, only show swipe when it's at 0 charges
+    if charges then
+        if cooldown.isOnGCD then
+            local swipeAlpha = C_CurveUtil.EvaluateColorValueFromBoolean(chargeDuration:IsZero(), swipeColor[4], 0)
+            cdmFrame.Cooldown:SetSwipeColor(swipeColor[1], swipeColor[2], swipeColor[3], swipeAlpha)
         else
-            cdmFrame.Cooldown:SetDrawSwipe(true)
+            local swipeAlpha = C_CurveUtil.EvaluateColorValueFromBoolean(cooldownDuration:IsZero(), 0, swipeColor[4])
+            cdmFrame.Cooldown:SetSwipeColor(swipeColor[1], swipeColor[2], swipeColor[3], swipeAlpha)
+        end
+    else
+        cdmFrame.Cooldown:SetSwipeColor(unpack(swipeColor))
+    end
+
+    -- If the spell has charges, draw the edge only when it has some but not max charges
+    if DB.GetAlwaysShowCooldownEdge(spellID) then
+        cdmFrame.Cooldown:SetDrawEdge(true)
+        cdmFrame.Cooldown:SetEdgeColor(1, 1, 1, 1)
+    elseif charges then
+        cdmFrame.Cooldown:SetDrawEdge(true)
+        if cooldown.isOnGCD == nil or cooldown.isOnGCD then
+            local edgeAlpha = C_CurveUtil.EvaluateColorValueFromBoolean(chargeDuration:IsZero(), 0, 1)
+            cdmFrame.Cooldown:SetEdgeColor(1, 1, 1, edgeAlpha)
+        else
+            -- If it's on cooldown (no charges, not on GCD), don't show edge
+            local edgeAlpha = C_CurveUtil.EvaluateColorValueFromBoolean(cooldownDuration:IsZero(), 1, 0)
+            cdmFrame.Cooldown:SetEdgeColor(1, 1, 1, edgeAlpha)
         end
     end
 end
@@ -110,35 +123,33 @@ local function ApplyCooldownSettings(cdmFrame)
         return
     end
 
-    if DB.GetAlwaysShowCooldownEdge(spellID) then
-        cdmFrame.Cooldown:SetDrawEdge(true)
-    end
+    if not cdmFrame.wasSetFromAura then
+        overriddenFrames[cdmFrame] = nil
 
-    if DB.GetShowAuras(spellID) and cdmFrame.wasSetFromAura then
-        cdmFrame.Cooldown:SetSwipeColor(unpack(DB.GetAuraSwipeColor(spellID)))
-        cdmFrame.Cooldown:SetReverse(DB.GetAuraSwipeReversed(spellID))
+        cdmFrame.Cooldown:SetSwipeColor(unpack(DB.GetCooldownSwipeColor(spellID)))
+        cdmFrame.Cooldown:SetReverse(false)
+        cdmFrame.Cooldown:SetEdgeColor(1, 1, 1, 1)
+        if DB.GetAlwaysShowCooldownEdge(spellID) then
+            cdmFrame.Cooldown:SetDrawEdge(true)
+        end
+
         return
     end
 
-    cdmFrame.Cooldown:SetReverse(false)
-    cdmFrame.Cooldown:SetSwipeColor(unpack(DB.GetCooldownSwipeColor(spellID)))
+    if DB.GetShowAuras(spellID) then
+        cdmFrame.Icon:SetDesaturation(0)
+        cdmFrame.Cooldown:SetSwipeColor(unpack(DB.GetAuraSwipeColor(spellID)))
+        cdmFrame.Cooldown:SetReverse(true)
+        cdmFrame.Cooldown:SetEdgeColor(1, 1, 1, 1)
+        if DB.GetAlwaysShowCooldownEdge(spellID) then
+            cdmFrame.Cooldown:SetDrawEdge(true)
+        end
 
-    local cooldownDuration = C_Spell.GetSpellCooldownDuration(spellID)
-    cdmFrame.Cooldown:SetCooldownFromDurationObject(cooldownDuration)
-    if C_Spell.GetSpellCharges(spellID) then
-        cdmFrame.Cooldown:SetCooldownFromDurationObject(C_Spell.GetSpellChargeDuration(spellID))
-    else
-        cdmFrame.Cooldown:SetDrawSwipe(true)
+        return
     end
 
-    local cooldown = C_Spell.GetSpellCooldown(spellID)
-    if cooldown and cooldown.isOnGCD then
-        cdmFrame.WillsCDM_Desaturation = 0
-    else
-        cdmFrame.WillsCDM_Desaturation = cooldownDuration:EvaluateRemainingPercent(desaturationCurve)
-    end
-
-    ApplyIconSettings(cdmFrame)
+    overriddenFrames[cdmFrame] = spellID
+    UpdateOverriddenFrame(cdmFrame, spellID)
 end
 
 local function HookCooldownFrame(cdmFrame)
@@ -152,10 +163,11 @@ local function HookCooldownFrame(cdmFrame)
     end)
 
     hooksecurefunc(cdmFrame.Icon, "SetDesaturated", function(self)
-        ApplyIconSettings(self:GetParent())
+        UpdateOverriddenFrame(self:GetParent())
     end)
 
     cdmFrame.WillsCDM_Hooked = true
+    table.insert(hookedFrames, cdmFrame)
 end
 
 local function HookBuffIconFrame(cdmFrame)
@@ -177,11 +189,13 @@ local function HookBuffIconFrame(cdmFrame)
         end
 
         cdmFrame.Cooldown:SetSwipeColor(unpack(DB.GetAuraSwipeColor(spellID)))
-        cdmFrame.Cooldown:SetReverse(DB.GetAuraSwipeReversed(spellID))
+        cdmFrame.Cooldown:SetReverse(true)
         cdmFrame.Cooldown:SetDrawEdge(DB.GetAlwaysShowCooldownEdge(spellID))
+        cdmFrame.Cooldown:SetEdgeColor(1, 1, 1, 1)
     end)
 
     cdmFrame.WillsCDM_Hooked = true
+    table.insert(hookedFrames, cdmFrame)
 end
 
 local function HookFrames()
@@ -213,13 +227,8 @@ local function RefreshCooldownManagerFrames()
         return
     end
 
-    HookFrames()
-
-    for _, cdmFrame in ipairs(GetCooldownFrames()) do
-        if cdmFrame.Cooldown and cdmFrame.Icon then
-            ApplyCooldownSettings(cdmFrame)
-            ApplyIconSettings(cdmFrame)
-        end
+    for _, frame in ipairs(hookedFrames) do
+        ApplyCooldownSettings(frame)
     end
 
     ItemViewer:RefreshItemViewerFrames()
